@@ -3,7 +3,6 @@ project(timed_path_follower)
 
 find_package(catkin REQUIRED COMPONENTS
   costmap_2d
-  dynamic_reconfigure
   geometry_msgs
   nav_core
   pluginlib
@@ -11,14 +10,9 @@ find_package(catkin REQUIRED COMPONENTS
   tf
 )
 
-generate_dynamic_reconfigure_options(
-   cfg/PathFollower.cfg
-)
-
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS dynamic_reconfigure
 )
 
 include_directories(
@@ -31,10 +25,9 @@ add_library(
     src/path_follower.cpp
 )
 
-add_dependencies(
-  ${PROJECT_NAME} 
-    ${PROJECT_NAME}_gencfg
-)
+#add_dependencies(
+#  ${PROJECT_NAME} 
+#)
 
 target_link_libraries(
   ${PROJECT_NAME} 

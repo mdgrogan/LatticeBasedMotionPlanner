@@ -40,14 +40,12 @@
 #include <ros/ros.h>
 #include <angles/angles.h>
 #include <tf/transform_listener.h>
-#include <dynamic_reconfigure/server.h>
 #include <pluginlib/class_list_macros.h>
 #include <nav_core/base_local_planner.h>
 #include <costmap_2d/costmap_2d_ros.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Twist.h>
 #include <std_srvs/Empty.h>
-#include <timed_path_follower/PathExecuterConfig.h>
 
 namespace path_executer
 {
@@ -143,16 +141,6 @@ public:
   {
     return goal_reached_;
   }
-
-  /**
-   * @brief dynamic reconfigure callback
-   *
-   * @param config dynamic reconfigure configuration with controller velocity
-   *        limits and gains
-   * @param level level
-   */
-  void reconfigureCallback(path_executer::PathExecuterConfig &config,
-                            uint32_t level);
 
 private:
 

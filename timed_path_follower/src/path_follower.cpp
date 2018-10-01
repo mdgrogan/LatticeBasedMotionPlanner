@@ -91,22 +91,6 @@ namespace path_executer
       initialized_ = true;
     }
   }
-/*
-  void PathFollower::reconfigureCallback
-      (path_executer::PathExecuterConfig &config, uint32_t level)
-  {
-    ROS_INFO("PathFollower::reconfigureCallback");
-    k_rho_ = config.k_rho;
-    k_alpha_ = config.k_alpha;
-    k_beta_ = config.k_beta;
-    max_vel_x_ = config.max_vel_x;
-    max_vel_phi_ = config.max_vel_phi;
-
-    ROS_INFO("changed controller values: \n \n gains: \n k_rho = %f \n k_alpha %f \n "
-             "k_beta %f \n \n max_velocity: \n max_vel_x %f \n mav_vel_phi %f",
-             k_rho_, k_alpha_, k_beta_, max_vel_x_, max_vel_phi_);
-  }
-*/
 
   bool PathFollower::findWaypointAtTime(ros::Time time,
                                         geometry_msgs::PoseStamped& waypoint,
