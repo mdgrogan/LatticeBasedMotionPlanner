@@ -1,0 +1,52 @@
+# Node parameters for using the lattice planner as global planner with move base. 
+# For more information about the move base parameters in this file, please see
+#
+#  http://www.ros.org/wiki/move_base
+#
+
+shutdown_costmaps: false
+
+#disable recovery behaviors
+recovery_behavior_enabled: false
+
+#planner frequency 
+planner_frequency: 0 #2.0 
+planner_patience: 5.0
+
+#disable oscillation checking
+oscillation_timeout: 0.0
+oscillation_distance: 0.0
+
+#use lattice planner as the global planner
+base_global_planner: lattice_planner/LatticePlannerROS
+
+#lattice planner params
+LatticePlannerROS:
+    #cost factors
+    # cost for possibly inscribed is 128
+    lethal_cost: 128 # cost associated with forbidden areas (e.g. obstacles). default: costmap_2d::INSCRIBED_INFLATED_OBSTACLE( = 253)
+    time_cost_factor: 50.0 #cost factor for path execution time. default: 200.0
+    step_cost_factor: 10.0 #cost factor for path length. default: 80.0
+    rotation_cost_factor: 4.0 #cost factor for the accumulated turns along a planned path
+    environment_cost_factor: 1.0 #cost factor for constraints defined in the dynamic environment, according to the dynamic cost map
+
+    #planner preferences
+    allow_unknown: false #whether the planner is allowed to expand into unknown map regions. default: false
+    time_resolution: 0.5 #time resolution of the discretized configuration space in seconds. default: 0.5
+    collision_check_time_resolution: 0.1 #time increment to slice trajectories for collision checking in seconds. default: 0.1
+    planning_timeout: 100.0 #timeout for the planning after which the best solution found so far is returned, in seconds. should be a little smaller than (1/planner_frequency). default: 0.48
+    heuristic_dijkstra: true # use dijkstra rather than distance
+    publish_expanded: false #flag for publishing the expanded search tree for visualization. default: false
+    debug: false
+
+    #flags for simplifying the path search - violate optimality but accelerate the search procedure
+    heuristic_inflation: 3.0
+
+    #motion constraints of the robot:
+    min_vel_x: 0.0 #minimum forward velocity of the robot in meters per second (can be negative). default: 0.0
+    max_vel_x: 0.6 #maximum forward velocity of the robot in meters per second. default: 0.4
+    acceleration_x: 0.2 #forward acceleration in meters per second^2. default: 0.8
+    min_vel_phi: -0.785 #minimum angular velocity of the robot in radians per second (can be negative). default: -0.8
+    max_vel_phi: 0.785 #maximum angular velocity of the robot in radians per second. default: 0.8
+    acceleration_phi: 0.785 #angular acceleration in radians per second^2. default: 0.8
+

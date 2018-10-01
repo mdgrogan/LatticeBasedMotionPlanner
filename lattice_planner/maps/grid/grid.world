@@ -1,0 +1,29 @@
+include "../hokuyo.inc"
+include "../crobot.inc"
+include "../floorplan.inc"
+
+window( 
+  size [ 500 500 1]      
+  rotate [ 0.000 0.000 ] 
+  center [0.0 0.0 ]      
+  scale 15               
+  show_data 0
+)
+
+#window( 
+#  size [ 950 950 1]     
+#  rotate [ 0.000 0.000 ]
+#  center [12.9 12.9 ]   
+#  scale 30          
+#  show_data 0
+#)
+
+# load an environment bitmap
+floorplan (
+  size [25.8 25.8  1]   #metros (a imagem tem 344x344pixeis => 0.075 resolução no .yaml)
+  pose [12.9 12.9 0 0]
+  bitmap "grid.pgm"
+)
+
+include "robots.inc"
+
