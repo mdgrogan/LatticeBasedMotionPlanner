@@ -121,7 +121,7 @@ namespace path_executer
     }
 
     //make sure requested time is represented by the global plan
-    if(time > global_plan_waypoints_.back().header.stamp ||
+    if(time.toSec() > global_plan_waypoints_.back().header.stamp.toSec() + 0.25 ||
        time < global_plan_waypoints_.front().header.stamp)
     {
       ROS_ERROR("requested waypoint is not within time range of path");

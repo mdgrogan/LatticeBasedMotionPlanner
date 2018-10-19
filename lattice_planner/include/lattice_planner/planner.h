@@ -51,13 +51,14 @@ class LatticePlanner {
         bool isValidTrajectory(std::vector<unsigned int> indices);
         std::vector<State> getNextStates(State *current);
         void improvePath(double cur_eps, State *&best, bool &found_goal, 
-                         clock_t end_time);
+                         double end_time);
         void buildOpenList(double cur_eps);
         State *setStartState();
         State *setGoalState();
         lattice_planner::Path retracePath(State *state);
         void publishExpanded(State *state);
         int publishPlan(State *state);
+        double getWallTime();
 
         double eps_; // inflation
         //properties of current path finding run

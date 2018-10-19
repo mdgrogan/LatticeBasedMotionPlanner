@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 2.8.3)
 project(lattice_planner)
 
 SET(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_FLAGS "-std=c++0x -g ${CMAKE_CXX_FLAGS}")
+#set(CMAKE_CXX_FLAGS "-std=c++0x -ggdb3 ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS}")
 
 find_package(catkin REQUIRED
   COMPONENTS

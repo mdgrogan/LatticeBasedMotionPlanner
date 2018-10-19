@@ -1,5 +1,6 @@
 #include <stdio.h>
-#include <ctime>
+#include <time.h>
+#include <sys/time.h>
 #include <lattice_planner/planner.h>
 
 
@@ -89,6 +90,8 @@ LatticePlanner::LatticePlanner(std::string name,
 
     open_list_ = NULL;
     incons_list_ = NULL;
+    all_expanded_.rehash(1000000); //million good?
+    all_expanded_.reserve(1000000);
 
     start_state_ = NULL;
     goal_state_ = NULL;
@@ -102,6 +105,8 @@ LatticePlanner::LatticePlanner(std::string name,
 LatticePlanner::~LatticePlanner() {
     ROS_INFO("LatticePlanner::~LatticePlanner");
     reset();
+    delete open_list_;
+    delete incons_list_;
     delete discretizer_;
     delete primgen_;
     delete heuristic_calc_;
@@ -118,15 +123,15 @@ void LatticePlanner::reset() {
         if (!open_list_->isEmpty()) {
             open_list_->makeEmpty();
         }
-        delete open_list_;
-        open_list_ = NULL;
+        //delete open_list_;
+        //open_list_ = NULL;
     }
     if (incons_list_ != NULL) {
         if (!incons_list_->isEmpty()) {
             incons_list_->makeEmpty();
         }
-        delete incons_list_;
-        incons_list_ = NULL;
+        //delete incons_list_;
+        //incons_list_ = NULL;
     }
     state_map::iterator it;
     for (it=all_expanded_.begin(); it != all_expanded_.end(); it++) {
@@ -140,7 +145,7 @@ void LatticePlanner::reset() {
 
     expanded_paths_.poses.clear();
 
-    clearRobotFootprint();
+    //clearRobotFootprint();
 }
 
 /********************************************************************
@@ -272,15 +277,16 @@ std::vector<State> LatticePlanner::getNextStates(State *current) {
  * Improve on the current path. Reference ARA* paper for more.
  ********************************************************************/
 void LatticePlanner::improvePath(double cur_eps, State *&best, bool &goal_found,
-                                 clock_t end_time) {
+                                 double end_time) {
     ROS_INFO("LatticePlanner::improvePath");
     int expands = 0;
     State *current = NULL;
     double goal_key = goal_state_->g;
     double min_key = open_list_->getMinKey();
+    double old_key = min_key;
 
     while (!open_list_->isEmpty() && min_key < MAX && goal_key > min_key &&
-            clock() < end_time && ros::ok()) {
+            getWallTime() < end_time && ros::ok()) {
         // pop heap
         current = open_list_->deleteMinElement();
         if (best == NULL) {
@@ -350,6 +356,7 @@ void LatticePlanner::improvePath(double cur_eps, State *&best, bool &goal_found,
         }
 
         // reset keys
+        old_key = min_key;
         min_key = open_list_->getMinKey();
         goal_key = goal_state_->g;
 
@@ -363,10 +370,13 @@ void LatticePlanner::improvePath(double cur_eps, State *&best, bool &goal_found,
             expanded_paths_.poses.insert(expanded_paths_.poses.end(),
                     poses.begin(), poses.end());
             if (debug_) {
-                ROS_INFO("expanded_paths_ size: %d", expanded_paths_.poses.size());
+                //ROS_INFO("expanded_paths_ size: %d", expanded_paths_.poses.size());
                 expanded_paths_.header.frame_id = costmap_->getGlobalFrameID();
                 //expanded_paths_.header.stamp = ros::Time::now();
                 expanded_paths_pub_.publish(expanded_paths_);
+                ROS_INFO("goal_key = %.3f", goal_key);
+                ROS_INFO("min_key = %.3f", min_key);
+                ROS_INFO("old_key = %.3f", old_key);
                 std::string input;
                 std::cout << "press enter to continue, c + enter to finish planning without interrupt: ";
 
@@ -389,14 +399,13 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
                              geometry_msgs::PoseStamped goal,
                      std::vector<geometry_msgs::PoseStamped> &path) {
     ROS_INFO("LatticePlanner::getPath");
-    call_number_++;
+    //call_number_++;
     // clear containers
     reset();
     // new containers
     open_list_ = new Heap;
     incons_list_ = new List;
-    all_expanded_.rehash(1000000); //million good?
-    all_expanded_.reserve(1000000);
+
     // set up start and goal states
     start_pose_.setX(start.pose.position.x);
     start_pose_.setY(start.pose.position.y);
@@ -409,13 +418,21 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
     start_state_ = setStartState();
     goal_state_ = setGoalState();
 
+
     if (start_state_ == NULL || goal_state_ == NULL) {
         ROS_INFO("Bad start or goal state");
         return false;
     }
+    if (start_state_->state_i.getDiagonalDistance(goal_state_->state_i) <= 5) {
+        ROS_INFO("Start and goal state within tolerance");
+        return true;
+    }
 
     if (goal_state_->state_i.in_map == false) {
         ROS_INFO("Goal state not in map");
+        ROS_INFO("goal->pose = (%f, %f, %f)", goal_state_->pose.getX(),
+                                          goal_state_->pose.getY(),
+                                          goal_state_->pose.getTheta());
         return false;
     }
     if (costmap_->getCostmap()->getCost(goal_state_->state_i.x_i, goal_state_->state_i.y_i)
@@ -423,8 +440,7 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
         ROS_INFO("Goal state not reachable");
         return false;
     }
-
-
+    call_number_++;
 
     
     // Set start state cost
@@ -454,7 +470,13 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
     //double eps_bound = 0.0;
     search_iteration_ = 1;
     clock_t start_time = clock();
+    double prev_time = 0;
     clock_t end_time = clock() + (clock_t)(planning_timeout_*(double)CLOCKS_PER_SEC);
+    double start_time_wall = getWallTime();
+    double prev_time_wall = 0;
+    double end_time_wall = getWallTime() + planning_timeout_;
+    double prev_exec_time = 0;
+    double reward = 0;
     // set heuristic inside clock
     if (use_dijkstra_) {
         heuristic_calc_->dijkstraHeuristic(goal_state_);
@@ -463,13 +485,17 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
     }
     heuristic_calc_->publishHeuristic();
 
-    while ((cur_eps >= 1.0 - ROUNDED_ZERO) && (clock() < end_time) && ros::ok()) {
+    while ((cur_eps >= 1.0 - ROUNDED_ZERO) && (getWallTime() < end_time_wall) && ros::ok()) {
         // no effect on first iteration
         buildOpenList(cur_eps);
         // improve/compute path
-        improvePath(cur_eps, current_best, found_goal, end_time);
-        clock_t now = clock();
-        double plan_time = (double)(now - start_time)/((double)CLOCKS_PER_SEC);
+        improvePath(cur_eps, current_best, found_goal, end_time_wall);
+        double plan_time = (double)(clock() - start_time)/((double)CLOCKS_PER_SEC);
+        double plan_time_wall = getWallTime() - start_time_wall;
+        double improve_time = (double)(clock() - start_time)/((double)CLOCKS_PER_SEC) - prev_time;
+        double improve_time_wall = getWallTime() - start_time_wall - prev_time_wall;
+        prev_time = plan_time;
+        prev_time_wall = plan_time_wall;
 
         // publish current path
         int plan_len = 0;
@@ -479,11 +505,22 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
             plan_len = publishPlan(current_best);
         }
         double exec_time = plan_len*time_resolution_;
+        double time_over_last;
+        if (search_iteration_ == 1) {
+            time_over_last = 0;
+        } else {
+            time_over_last = improve_time + exec_time - prev_exec_time;
+        }
+        reward += time_over_last; 
+        prev_exec_time = exec_time;
 
         // print some stuff
         ROS_INFO("---------------------------------------");
         ROS_INFO("goal_state_ cost %f", goal_state_->g);
         ROS_INFO("planning time %f", plan_time);
+        ROS_INFO("improve time %f", improve_time);
+        ROS_INFO("wall planning time %f", plan_time_wall);
+        ROS_INFO("wall improve time %f", improve_time_wall);
         ROS_INFO("estimated exec time %f", exec_time);
         ROS_INFO("current eps %f", cur_eps);
         //ROS_INFO("eps_bound %f", eps_bound);
@@ -495,14 +532,19 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
         // in the future, write both h and h_max to try to get something
         // a little more agnostic towards environment
         FILE *fp;
-        fp = fopen("/home/grogan/output.txt", "a");
-        fprintf(fp, "%d, %.3f, %.3f, %.1f, %.3f, %.3f, %d, %d, %d\n",
+        fp = fopen("/home/grogan/output_dijkstra.txt", "a");
+        fprintf(fp, "%d, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.1f, %.3f, %.3f, %.3f, %d, %d, %d\n",
                 call_number_,
                 plan_time,
+                improve_time,
+                time_over_last,
+                reward,
+                plan_time_wall,
+                improve_time_wall,
                 exec_time,
                 cur_eps,
                 goal_state_->g,
-                heuristic_calc_->getHeuristic(start_state_, goal_pose_)/
+                heuristic_calc_->getHeuristic(start_state_, goal_pose_),
                 heuristic_calc_->max_val,
                 open_list_->cur_size,
                 incons_list_->cur_size,
@@ -512,7 +554,7 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
         search_iteration_++;
 
         // decrease the heuristic inflation
-        cur_eps -= 0.2;
+        cur_eps -= 0.1;
 
         expanded_paths_.poses.clear();
 
@@ -553,7 +595,7 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
  * reevaluate their f values for the new heuristic inflation
  ********************************************************************/
 void LatticePlanner::buildOpenList(double cur_eps) {
-    ROS_INFO("LatticePlanner::buildOpenList");
+    //ROS_INFO("LatticePlanner::buildOpenList");
     // move from incons list
     while (incons_list_->firstElement != NULL) {
         State *state = incons_list_->firstElement->listState;
@@ -629,7 +671,7 @@ lattice_planner::Path LatticePlanner::retracePath(State *state) {
  * Publish the ole plannerooski
  ********************************************************************/
 int LatticePlanner::publishPlan(State *state) {
-    ROS_INFO("LatticePlanner::publishPlan");
+    //ROS_INFO("LatticePlanner::publishPlan");
     current_plan_ = retracePath(state);
     std::vector<geometry_msgs::PoseStamped> plan_poses = current_plan_.poses;
     ros::Time t = ros::Time::now();
@@ -647,6 +689,14 @@ int LatticePlanner::publishPlan(State *state) {
         path_pub_.publish(path);
     }
     return plan_poses.size();
+}
+
+double LatticePlanner::getWallTime() {
+    struct timeval time;
+    if (gettimeofday(&time, NULL)) {
+        throw std::runtime_error("(discrete_state.h) negative diagonal distance");
+    }
+    return (double)time.tv_sec + (double)time.tv_usec * 0.000001;
 }
 
 

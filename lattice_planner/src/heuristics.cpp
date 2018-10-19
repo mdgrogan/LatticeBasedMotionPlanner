@@ -111,6 +111,10 @@ double Heuristics::getHeuristic(State *state, Pose goal_pose) {
     // the (1/4) scaling results in a better heuristic
     double ret = (double)heuristics_[state->state_i.grid_cell] + rot_cost/8;
 
+    if (ret > 10e9) {
+        ROS_WARN("heuristic_ = %f", heuristics_[state->state_i.grid_cell]);
+        ROS_WARN("rot_cost = %f", rot_cost);
+    }
     return ret;
 }
 
