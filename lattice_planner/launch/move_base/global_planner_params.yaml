@@ -34,7 +34,7 @@ LatticePlannerROS:
     allow_unknown: false #whether the planner is allowed to expand into unknown map regions. default: false
     time_resolution: 0.5 #time resolution of the discretized configuration space in seconds. default: 0.5
     collision_check_time_resolution: 0.1 #time increment to slice trajectories for collision checking in seconds. default: 0.1
-    planning_timeout: 300.0 #timeout for the planning after which the best solution found so far is returned, in seconds. should be a little smaller than (1/planner_frequency). default: 0.48
+    planning_timeout: 10.0 #timeout for the planning after which the best solution found so far is returned, in seconds. should be a little smaller than (1/planner_frequency). default: 0.48
     heuristic_dijkstra: true # use dijkstra rather than distance
     publish_expanded: false #flag for publishing the expanded search tree for visualization. default: false
     debug: false

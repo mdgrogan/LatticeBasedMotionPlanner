@@ -21,7 +21,11 @@
 #include <lattice_planner/heap.h>
 #include <lattice_planner/list.h>
 #include <lattice_planner/cost_manager.h>
+#include <lattice_planner/timing_info.h>
 #include <lattice_planner/Path.h>
+
+#include <lattice_planner/Qstate_discretizer.h>
+#include <lattice_planner/Qtable.h>
 
 #define SQRT2 1.414213562
 
@@ -50,15 +54,18 @@ class LatticePlanner {
         State *getState(State state);
         bool isValidTrajectory(std::vector<unsigned int> indices);
         std::vector<State> getNextStates(State *current);
-        void improvePath(double cur_eps, State *&best, bool &found_goal, 
+        int improvePath(double cur_eps, State *&best, bool &found_goal, 
                          double end_time);
+        double getBoundedEps(double cur_eps);
         void buildOpenList(double cur_eps);
+        bool initStartAndGoal(geometry_msgs::PoseStamped start,
+                              geometry_msgs::PoseStamped goal);
         State *setStartState();
         State *setGoalState();
         lattice_planner::Path retracePath(State *state);
         void publishExpanded(State *state);
         int publishPlan(State *state);
-        double getWallTime();
+        void printStuff(TimingInfo ti, double cur_eps, double bounded_eps, double reward);
 
         double eps_; // inflation
         //properties of current path finding run
@@ -80,6 +87,11 @@ class LatticePlanner {
         CostManager *cost_calc_; 
         MotionConstraints motion_constraints_;
         CostFactors cost_factors_;
+
+        //Q-learning stuff
+        QStuff::QStateDiscretizer *QSD_;
+        QStuff::QTable *QT_;
+
        
         //containers
         Heap *open_list_; // open list

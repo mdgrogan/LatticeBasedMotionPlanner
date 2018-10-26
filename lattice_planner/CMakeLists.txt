@@ -49,6 +49,9 @@ add_library(
   src/dijkstra.cpp
   src/cost_manager.cpp
   src/heap.cpp
+  src/timing_info.cpp
+  src/Qstate_discretizer.cpp
+  src/Qtable.cpp
 )
 
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencpp)
