@@ -9,8 +9,8 @@ namespace lattice_planner {
 
 class TimingInfo {
     public:
-        TimingInfo(double time_resolution);
-        double update(int plan_len);
+        TimingInfo();
+        double update(double exec_time);
         //double getPlanTime();
         //double getExecTime()
         double getWallTime();

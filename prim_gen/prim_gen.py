@@ -1,1042 +1,641 @@
+from __future__ import division
 import numpy as np
 import math
 
+import pylab as plt
 
+# lets say that var_i is for discrete,
+# var_c is for continuous
 resolution = 0.025
 numAngles = 16
+pi = math.pi
+#angle = [0, math.atan(.5), math.atan(1), math.atan(2), \
+#         pi/2, math.atan(.5)+pi/2, math.atan(1)+pi/2, math.atan(2)+pi/2, \
+#         pi, math.atan(.5)+pi, math.atan(1)+pi, math.atan(2)+pi, \
+#         pi*3/2, math.atan(.5)+pi*3/2, math.atan(1)+pi*3/2, math.atan(2)+pi*3/2]
+         
+velincr = 0.1
+veln1 = -0.1
 vel0 = 0.0 # m/s
-vel1 = 0.2
-vel2 = 0.4
-vel3 = 0.6
+vel1 = 0.1
+vel2 = 0.2
+vel3 = 0.3
+vel4 = 0.4
+vel5 = 0.5
 timeToTurn22p5degsInPlace = 1.0
-numPrimsPerVel0 = 10
-numPrimsPerVel1 = 18
-numPrimsPerVel2 = 15
-numPrimsPerVel3 = 9
-numVelocitiesPerAngle = 4
+
+numVelocitiesPerAngle = 7
 
 filename = "unicycle_2p5cm.mprim"
 primFile = open(filename, 'w+')
-primFile.write("resolution_m: %d\n" % resolution)
+primFile.write("resolution_m: %.4f\n" % resolution)
 primFile.write("numberofangles: %d\n" % numAngles)
-primFile.write("numberofvelocities: 4\n")
-primFile.write("totalnumberofprimitives: 832\n")
+primFile.write("numberofvelocities: 7\n")
+primFile.write("timetoturn22.5deginplace: %.4f\n" % timeToTurn22p5degsInPlace)
+primFile.write("totalnumberofprimitives: 896\n")
 primFile.close()
+
+def generateIntermediatePoses(angleIndex, currentangle, startvel_i, angle, endpose):
+
+    endx = round(endpose[0]*math.cos(angle)-endpose[1]*math.sin(angle))
+    endy = round(endpose[0]*math.sin(angle)+endpose[1]*math.cos(angle))
+    endth = (angleIndex + endpose[2]) % numAngles
+
+    primExecTime = 0.0
+    endpose_i = [endx, endy, endth, endpose[3]]
+    endpose_c = [endx*resolution, endy*resolution, \
+                 endth*2*pi/numAngles, primExecTime]
+
+    numSamples = 10
+    intmposes_c = np.zeros((numSamples,4))
+
+    startvel_c = startvel_i*velincr
+    endvel_c = endpose[3]*velincr
+
+
+#    print("[0 0 %.3f] --> [%.3f %.3f %.3f]" % \
+#            (currentangle_c, endpose_c[0], endpose_c[1], endpose_c[2]))
+
+
+    # calculate primitive execution time (assuming straight line
+    dist_c = math.sqrt(endpose_c[0]**2 + endpose_c[1]**2)
+    if (endpose[0]==0 and endpose[1]==0): # turn in place
+        primExecTime = timeToTurn22p5degsInPlace 
+    elif startvel_c==0 and endpose[3]==0: # vel0 -> vel0 transition
+        t = 2*dist_c/(vel1/2)
+        primExecTime = 2*t
+    else:
+        primExecTime = abs(2*dist_c/(startvel_c + endpose[3]*velincr))
+
+
+    if endpose[2] == 0: # move forward
+        #print("move forward")
+        if startvel_i==0 and endpose[3]==0: # vel0 -> vel0 transition
+            #print("vel0 -> vel0\n")
+            for i in range(0,numSamples):
+                dt = i/(numSamples-1)
+                intmposes_c[i,:] = [endpose_c[0]*dt, endpose_c[1]*dt, \
+                                      endpose_c[2], primExecTime*dt] 
+
+        else: # uniform acceleration
+            #print("uniform accel\n")
+            if dist_c < 0.0000001:
+                print("bad distance!")
+                print("[0 0 %.3f %d] --> [%.3f %.3f %.3f %d]" % \
+                        (currentangle, startvel_i, \
+                        endpose_c[0], endpose_c[1], endpose_c[2], endpose[3]))
+            a = (endvel_c**2 - startvel_c**2)/(2*dist_c)
+            dist_c_i = dist_c/(numSamples-1)
+            intmposes_c[0,:] = [0, 0, currentangle, 0]
+            for i in range(1,numSamples):
+                dt = i/(numSamples-1)
+                t_i = (2*i*dist_c_i)/ \
+                      (math.sqrt(startvel_c**2 + 2*a*i*dist_c_i) + abs(startvel_c))
+                      
+                intmposes_c[i,:] = [endpose_c[0]*dt, \
+                                    endpose_c[1]*dt, \
+                                    endpose_c[2], t_i] 
+
+    elif endpose[0]==0 and endpose[1]==0: # turn in place
+        #print("turn in place\n")
+        for i in range(0,numSamples):
+            dt = i/(numSamples-1)
+            rotationangle = endpose[2]*2*pi/numAngles
+            intmposes_c[i,:] = [0, 0, currentangle+rotationangle*dt, \
+                                primExecTime*dt]
+
+    else: # forward and turn
+        #print("forward and turn\n")
+        R = np.matrix([ \
+            [math.cos(currentangle), math.sin(endpose_c[2])-math.sin(currentangle)], \
+            [math.sin(currentangle), -(math.cos(endpose_c[2])-math.cos(currentangle))]])
+        S = np.matmul(R.getI(), [[endpose_c[0]],[endpose_c[1]]])
+        l = S[0]
+        tvoverrv = S[1]
+        rv = endpose[2]*2*pi/numAngles + l/tvoverrv
+        tv = tvoverrv*rv
+
+        if (l < 0 and tv > 0) or (l > 0 and tv < 0):
+            #print("l<0: bad start/end points")
+            l = 0
+
+        # first pass for x, y, theta
+        #a = (endvel_c**2 - startvel_c**2)/(2*dist_c)
+        #dist_c_i = dist_c/(numSamples-1)
+        dist_c = 0
+        intmposes_c[0,:] = [0, 0, currentangle, 0]
+        for i in range(1,numSamples):
+            dt = i/(numSamples-1)
+            #t_i = (2*i*dist_c_i)/ \
+            #      (math.sqrt(startvel_c**2 + 2*a*i*dist_c_i) + startvel_c)
+
+            if abs(dt*tv) < abs(l):
+                intmposes_c[i,:] = [dt*tv*math.cos(currentangle), \
+                                    dt*tv*math.sin(currentangle), \
+                                    currentangle, 0]
+            else:
+                dtheta = rv*(dt - l/tv) + currentangle
+                intmposes_c[i,:] = [l*math.cos(currentangle)+tvoverrv*(math.sin(dtheta)-math.sin(currentangle)), \
+                                    l*math.sin(currentangle)-tvoverrv*(math.cos(dtheta)-math.cos(currentangle)), \
+                                    dtheta, 0]
+            dist_c += math.sqrt((intmposes_c[i,0]-intmposes_c[i-1,0])**2 + \
+                                (intmposes_c[i,1]-intmposes_c[i-1,1])**2)
+        
+        # correct error
+        if angleIndex==0 and endpose[2]==-1:
+            #endpose_c[2] = -angle[1]
+            endpose_c[2] = -2*math.pi/numAngles
+        elif angleIndex==15 and endpose[2]==1:
+            #startangle_c = -angle[1]
+            endpose_c[2] = 2*math.pi
+        errorxyth = [endpose_c[0] - intmposes_c[numSamples-1,0], \
+                     endpose_c[1] - intmposes_c[numSamples-1,1], \
+                     endpose_c[2] - intmposes_c[numSamples-1,2]]
+        interp = np.zeros(numSamples)
+        for i in range(0,numSamples):
+            interp[i] = i/(numSamples-1)
+        intmposes_c[:,0] = intmposes_c[:,0] + errorxyth[0]*interp
+        intmposes_c[:,1] = intmposes_c[:,1] + errorxyth[1]*interp
+        intmposes_c[:,2] = intmposes_c[:,2] + errorxyth[2]*interp
+
+        # second pass for time
+        primExecTime = abs(2*dist_c/(startvel_c + endpose[3]*velincr))
+        a = (endvel_c**2 - startvel_c**2)/(2*dist_c)
+        #print(dist_c)
+        dist_c_i = dist_c/(numSamples-1)
+        for i in range(1,numSamples):
+            #print("vi^2 2ad = %.4f %.4f" % (startvel_c**2, 2*a*i*dist_c_i))
+            t_i = 0
+            if startvel_c**2 + 2*a*i*dist_c_i < 0.00001:
+                t_i = abs((2*i*dist_c_i)/startvel_c)
+            else:
+                t_i = (2*i*dist_c_i)/ \
+                      (math.sqrt(startvel_c**2 + 2*a*i*dist_c_i) + abs(startvel_c))
+            intmposes_c[i,3] = t_i
+    for i in range(0,numSamples):
+        if intmposes_c[i,2] < 0:
+            intmposes_c[i,2] = intmposes_c[i,2] + 2*math.pi
+        if intmposes_c[i,2] >= 2*math.pi:
+            intmposes_c[i,2] = intmposes_c[i,2] - 2*math.pi
+
+    direction = 0
+    if endpose[3] == -1:
+        direction = -1
+    elif endpose[3] > 0:
+        direction = 1
+        
+    #write to file
+    primFile = open(filename, 'a')
+    primFile.write("startangle_i: %d\n" % (angleIndex))
+    primFile.write("startvel_i: %d\n" % (startvel_i))
+    primFile.write("endpose_i: %d %d %d %d\n" % (endpose_i[0],endpose_i[1],endpose_i[2],endpose_i[3]))
+    primFile.write("direction: %d\n" % (direction))
+    primFile.write("exectime: %.4f\n" % (primExecTime))
+    primFile.write("intermediateposes: %d\n" % (numSamples))
+    for i in range(0,numSamples):
+        primFile.write("%.4f %.4f %.4f %.4f\n" % (intmposes_c[i,0], intmposes_c[i,1], \
+                                                  intmposes_c[i,2], intmposes_c[i,3]))
+    primFile.close()
+
+    for i in range(1,numSamples):
+        plt.plot([intmposes_c[i-1,0],intmposes_c[i,0]],
+                 [intmposes_c[i-1,1],intmposes_c[i,1]],
+                 color="blue")
+
+
+#S = np.matmul(np.linalg.pinv(R), np.array([[endpose_c[0]],[endpose_c[1]]]))
 
 # start always assumed to be cell (0,0)
 # end pose is (x, y, angle, velocity)
-# have 16 angles (0, 22.5, 45, 67.5, ...) corresponding to 0, 1, 2, ...
+# have 16 angles (0, 26.5, 45, 63.5, ...) corresponding to 0, 1, 2, ...
 # and 4 velocities (0, ,0.2, 0.4, 0.6)
 # for 2.5cm resolution, max accel will be 0.8 -- within reason,
+numPrimsPerVeln1 = 6
+numPrimsPerVel0 = 9
+numPrimsPerVel1 = 12
+numPrimsPerVel2 = 14
+numPrimsPerVel3 = 8
+numPrimsPerVel4 = 4
+numPrimsPerVel5 = 3
 
+endpose_angle0_veln1 = np.zeros((numPrimsPerVeln1, 4))
 endpose_angle0_vel0 = np.zeros((numPrimsPerVel0, 4))
 endpose_angle0_vel1 = np.zeros((numPrimsPerVel1, 4))
 endpose_angle0_vel2 = np.zeros((numPrimsPerVel2, 4))
 endpose_angle0_vel3 = np.zeros((numPrimsPerVel3, 4))
+endpose_angle0_vel4 = np.zeros((numPrimsPerVel4, 4))
+endpose_angle0_vel5 = np.zeros((numPrimsPerVel5, 4))
 
+endpose_angle22p5_veln1 = np.zeros((numPrimsPerVeln1, 4))
 endpose_angle22p5_vel0 = np.zeros((numPrimsPerVel0, 4))
 endpose_angle22p5_vel1 = np.zeros((numPrimsPerVel1, 4))
 endpose_angle22p5_vel2 = np.zeros((numPrimsPerVel2, 4))
 endpose_angle22p5_vel3 = np.zeros((numPrimsPerVel3, 4))
+endpose_angle22p5_vel4 = np.zeros((numPrimsPerVel4, 4))
+endpose_angle22p5_vel5 = np.zeros((numPrimsPerVel5, 4))
 
+endpose_angle45_veln1 = np.zeros((numPrimsPerVeln1, 4))
 endpose_angle45_vel0 = np.zeros((numPrimsPerVel0, 4))
 endpose_angle45_vel1 = np.zeros((numPrimsPerVel1, 4))
 endpose_angle45_vel2 = np.zeros((numPrimsPerVel2, 4))
 endpose_angle45_vel3 = np.zeros((numPrimsPerVel3, 4))
+endpose_angle45_vel4 = np.zeros((numPrimsPerVel4, 4))
+endpose_angle45_vel5 = np.zeros((numPrimsPerVel5, 4))
 
-endpose_angle67p5_vel0 = np.zeros((numPrimsPerVel0, 4))
-endpose_angle67p5_vel1 = np.zeros((numPrimsPerVel1, 4))
-endpose_angle67p5_vel2 = np.zeros((numPrimsPerVel2, 4))
-endpose_angle67p5_vel3 = np.zeros((numPrimsPerVel3, 4))
-
-endpose_angle90_vel0 = np.zeros((numPrimsPerVel0, 4))
-endpose_angle90_vel1 = np.zeros((numPrimsPerVel1, 4))
-endpose_angle90_vel2 = np.zeros((numPrimsPerVel2, 4))
-endpose_angle90_vel3 = np.zeros((numPrimsPerVel3, 4))
 
 # for 0 degrees (0)
 ##############################################################################
-endpose_angle0_vel0[0,:] = [1, 0, 0, 0]     # forward -> vel0
-endpose_angle0_vel0[1,:] = [1, 0, 0, 1]     # forward -> vel1
-endpose_angle0_vel0[2,:] = [0, 0, 1, 0]     # rotate ccw in place
-endpose_angle0_vel0[3,:] = [0, 0, 15, 0]    # rotate cw in place
-endpose_angle0_vel0[4,:] = [4, 0, 0, 1]     # forward long -> vel1
-endpose_angle0_vel0[5,:] = [4, 0, 0, 2]     # forward long -> vel2
-endpose_angle0_vel0[6,:] = [4, 1, 1, 1]     # forward turn ccw long ->vel1
-endpose_angle0_vel0[7,:] = [4, 1, 1, 2]     # forward turn ccw long ->vel2
-endpose_angle0_vel0[8,:] = [4, -1, 15, 1]   # forward turn cw long -> vel1
-endpose_angle0_vel0[9,:] = [4, -1, 15, 2]   # forward turn cw long -> vel2
+endpose_angle0_veln1[0,:] = [-1, 0, 0, 0]     # backward -> vel0
+endpose_angle0_veln1[1,:] = [-1, 0, 0, -1]     # backward -> vel1
+endpose_angle0_veln1[2,:] = [-2, 1, -1, 0]     # backward turn ccw -> vel0
+endpose_angle0_veln1[3,:] = [-2, 1, -1, -1]     # backward turn ccw -> vel1
+endpose_angle0_veln1[4,:] = [-2, -1, 1, 0]   # backward turn cw -> vel0 
+endpose_angle0_veln1[5,:] = [-2, -1, 1, -1]   # backward turn cw -> vel1 
+
+endpose_angle0_vel0[0,:] = [-1, 0, 0, 0]     # backward -> vel0
+endpose_angle0_vel0[1,:] = [-1, 0, 0, -1]     # backward -> vel1
+endpose_angle0_vel0[2,:] = [-2, 1, -1, -1]     # backward turn ccw -> vel1
+endpose_angle0_vel0[3,:] = [-2, -1, 1, -1]   # backward turn cw -> vel1 
+endpose_angle0_vel0[4,:] = [1, 0, 0, 0]     # forward -> vel0
+endpose_angle0_vel0[5,:] = [1, 0, 0, 1]     # forward -> vel1
+endpose_angle0_vel0[6,:] = [2, 0, 0, 1]     # forward long -> vel1
+endpose_angle0_vel0[7,:] = [2, 1, 1, 1]     # forward turn ccw ->vel1
+endpose_angle0_vel0[8,:] = [2, -1, -1, 1]   # forward turn cw -> vel1
 
 endpose_angle0_vel1[0,:] = [1, 0, 0, 0]     # forward -> vel0
 endpose_angle0_vel1[1,:] = [1, 0, 0, 1]     # forward -> vel1
-endpose_angle0_vel1[2,:] = [1, 0, 0, 2]     # forward -> vel2
-endpose_angle0_vel1[3,:] = [2, 1, 1, 0]     # forward turn ccw -> vel0
-endpose_angle0_vel1[4,:] = [2, 1, 1, 1]     # forward turn ccw -> vel1
-endpose_angle0_vel1[5,:] = [2, 1, 1, 2]     # forward turn ccw -> vel2
-endpose_angle0_vel1[6,:] = [2, -1, 15, 0]   # forward turn cw -> vel0 
-endpose_angle0_vel1[7,:] = [2, -1, 15, 1]   # forward turn cw -> vel1 
-endpose_angle0_vel1[8,:] = [2, -1, 15, 2]   # forward turn cw -> vel2 
-endpose_angle0_vel1[9,:] = [8, 0, 0, 1]     # forward long -> vel1
-endpose_angle0_vel1[10,:] = [8, 0, 0, 2]    # forward long -> vel2
-endpose_angle0_vel1[11,:] = [8, 0, 0, 3]    # forward long -> vel3
-endpose_angle0_vel1[12,:] = [8, 1, 1, 1]    # forward turn ccw long ->vel1
-endpose_angle0_vel1[13,:] = [8, 1, 1, 2]    # forward turn ccw long ->vel2
-endpose_angle0_vel1[14,:] = [8, 1, 1, 3]    # forward turn ccw long ->vel3
-endpose_angle0_vel1[15,:] = [8, -1, 15, 1]  # forward turn cw long -> vel1
-endpose_angle0_vel1[16,:] = [8, -1, 15, 2]  # forward turn cw long -> vel2
-endpose_angle0_vel1[17,:] = [8, -1, 15, 3]  # forward turn cw long -> vel3
+endpose_angle0_vel1[2,:] = [2, 1, 1, 0]     # forward turn ccw -> vel0
+endpose_angle0_vel1[3,:] = [2, 1, 1, 1]     # forward turn ccw -> vel1
+endpose_angle0_vel1[4,:] = [2, -1, -1, 0]   # forward turn cw -> vel0 
+endpose_angle0_vel1[5,:] = [2, -1, -1, 1]   # forward turn cw -> vel1 
+endpose_angle0_vel1[6,:] = [4, 0, 0, 1]     # forward long -> vel1
+endpose_angle0_vel1[7,:] = [4, 0, 0, 2]    # forward long -> vel2
+endpose_angle0_vel1[8,:] = [4, 1, 1, 1]    # forward turn ccw long ->vel1
+endpose_angle0_vel1[9,:] = [4, 1, 1, 2]    # forward turn ccw long ->vel2
+endpose_angle0_vel1[10,:] = [4, -1, -1, 1]  # forward turn cw long -> vel1
+endpose_angle0_vel1[11,:] = [4, -1, -1, 2]  # forward turn cw long -> vel2
 
-endpose_angle0_vel2[0,:] = [1, 0, 0, 1]     # forward -> vel1
-endpose_angle0_vel2[1,:] = [1, 0, 0, 2]     # forward -> vel2
-endpose_angle0_vel2[2,:] = [1, 0, 0, 3]     # forward -> vel3
-endpose_angle0_vel2[3,:] = [4, 1, 1, 1]     # forward turn ccw -> vel1
-endpose_angle0_vel2[4,:] = [4, 1, 1, 2]     # forward turn ccw -> vel2
-endpose_angle0_vel2[5,:] = [4, 1, 1, 3]     # forward turn ccw -> vel3
-endpose_angle0_vel2[6,:] = [4, -1, 15, 1]   # forward turn cw -> vel1
-endpose_angle0_vel2[7,:] = [4, -1, 15, 2]   # forward turn cw -> vel2
-endpose_angle0_vel2[8,:] = [4, -1, 15, 3]   # forward turn cw -> vel3
-endpose_angle0_vel2[9,:] = [8, 0, 0, 2]     # forward long -> vel2
-endpose_angle0_vel2[10,:] = [8, 0, 0, 3]    # forward long -> vel3
-endpose_angle0_vel2[11,:] = [8, 1, 1, 2]    # forward turn ccw long ->vel2
-endpose_angle0_vel2[12,:] = [8, 1, 1, 3]    # forward turn ccw long ->vel3
-endpose_angle0_vel2[13,:] = [8, -1, 15, 2]  # forward turn cw long -> vel2
-endpose_angle0_vel2[14,:] = [8, -1, 15, 3]  # forward turn cw long -> vel3
+endpose_angle0_vel2[0,:] = [1, 0, 0, 2]     # forward -> vel2
+endpose_angle0_vel2[1,:] = [4, 1, 1, 0]     # forward turn ccw -> vel1
+endpose_angle0_vel2[2,:] = [4, 1, 1, 1]     # forward turn ccw -> vel2
+endpose_angle0_vel2[3,:] = [4, -1, -1, 0]   # forward turn cw -> vel1 
+endpose_angle0_vel2[4,:] = [4, -1, -1, 1]   # forward turn cw -> vel2 
+endpose_angle0_vel2[5,:] = [6, 0, 0, 1]     # forward long -> vel1
+endpose_angle0_vel2[6,:] = [6, 0, 0, 2]     # forward long -> vel2
+endpose_angle0_vel2[7,:] = [6, 0, 0, 3]    # forward long -> vel3
+endpose_angle0_vel2[8,:] = [6, 1, 1, 1]    # forward turn ccw long ->vel1
+endpose_angle0_vel2[9,:] = [6, 1, 1, 2]    # forward turn ccw long ->vel2
+endpose_angle0_vel2[10,:] = [6, 1, 1, 3]    # forward turn ccw long ->vel3
+endpose_angle0_vel2[11,:] = [6, -1, -1, 1]  # forward turn cw long -> vel1
+endpose_angle0_vel2[12,:] = [6, -1, -1, 2]  # forward turn cw long -> vel2
+endpose_angle0_vel2[13,:] = [6, -1, -1, 3]  # forward turn cw long -> vel3
 
-endpose_angle0_vel3[0,:] = [1, 0, 0, 2]     # forward -> vel2
-endpose_angle0_vel3[1,:] = [1, 0, 0, 3]     # forward -> vel3
-endpose_angle0_vel3[2,:] = [4, 1, 1, 2]     # forward turn ccw -> vel2
-endpose_angle0_vel3[3,:] = [4, 1, 1, 3]     # forward turn ccw -> vel3
-endpose_angle0_vel3[4,:] = [4, -1, 15, 2]   # forward turn cw -> vel2
-endpose_angle0_vel3[5,:] = [4, -1, 15, 3]   # forward turn cw -> vel3
-endpose_angle0_vel3[6,:] = [8, 0, 0, 3]     # forward long -> vel3
-endpose_angle0_vel3[7,:] = [8, 1, 1, 3]     # forward turn ccw long ->vel3
-endpose_angle0_vel3[8,:] = [8, -1, 15, 3]   # forward turn cw long -> vel3
+endpose_angle0_vel3[0,:] = [1, 0, 0, 3]     # forward -> vel3
+endpose_angle0_vel3[1,:] = [8, 0, 0, 2]     # forward long -> vel2
+endpose_angle0_vel3[2,:] = [8, 0, 0, 3]     # forward long -> vel3
+endpose_angle0_vel3[3,:] = [8, 0, 0, 4]     # forward long -> vel4
+endpose_angle0_vel3[4,:] = [8, 1, 1, 2]     # forward turn ccw long ->vel2
+endpose_angle0_vel3[5,:] = [8, 1, 1, 3]     # forward turn ccw long ->vel3
+endpose_angle0_vel3[6,:] = [8, -1, -1, 2]   # forward turn cw long -> vel2
+endpose_angle0_vel3[7,:] = [8, -1, -1, 3]   # forward turn cw long -> vel3
+
+endpose_angle0_vel4[0,:] = [1, 0, 0, 4]     # forward -> vel4
+endpose_angle0_vel4[1,:] = [12, 0, 0, 3]     # forward long -> vel3
+endpose_angle0_vel4[2,:] = [12, 0, 0, 4]     # forward long -> vel4
+endpose_angle0_vel4[3,:] = [12, 0, 0, 5]     # forward long -> vel5
+
+endpose_angle0_vel5[0,:] = [1, 0, 0, 5]     # forward -> vel5
+endpose_angle0_vel5[1,:] = [12, 0, 0, 4]     # forward long -> vel4
+endpose_angle0_vel5[2,:] = [12, 0, 0, 5]     # forward long -> vel5
 
 # for 22.5 degrees (1)
 ##############################################################################
-endpose_angle22p5_vel0[0,:] = [2, 1, 1, 0]     # forward -> vel0
-endpose_angle22p5_vel0[1,:] = [2, 1, 1, 1]     # forward -> vel1
-endpose_angle22p5_vel0[2,:] = [0, 0, 2, 0]     # rotate ccw in place
-endpose_angle22p5_vel0[3,:] = [0, 0, 0, 0]     # rotate cw in place
-endpose_angle22p5_vel0[4,:] = [4, 2, 1, 1]     # forward long -> vel1
-endpose_angle22p5_vel0[5,:] = [4, 2, 1, 2]     # forward long -> vel2
-endpose_angle22p5_vel0[6,:] = [3, 2, 2, 1]     # forward turn ccw long ->vel1
-endpose_angle22p5_vel0[7,:] = [3, 2, 2, 2]     # forward turn ccw long ->vel2
-endpose_angle22p5_vel0[8,:] = [4, 1, 0, 1]     # forward turn cw long -> vel1
-endpose_angle22p5_vel0[9,:] = [4, 1, 0, 2]     # forward turn cw long -> vel2
+endpose_angle22p5_veln1[0,:] = [-2, -1, 0, 0]     # backward -> vel0
+endpose_angle22p5_veln1[1,:] = [-2, -1, 0, -1]     # backward -> vel1
+endpose_angle22p5_veln1[2,:] = [-3, -2, 1, 0]     # backward turn ccw -> vel0
+endpose_angle22p5_veln1[3,:] = [-3, -2, 1, -1]     # backward turn ccw -> vel1
+endpose_angle22p5_veln1[4,:] = [-3, -1, -1, 0]   # backward turn cw -> vel0 
+endpose_angle22p5_veln1[5,:] = [-3, -1, -1, -1]   # backward turn cw -> vel1 
 
-endpose_angle22p5_vel1[0,:] = [2, 1, 1, 0]     # forward -> vel0
-endpose_angle22p5_vel1[1,:] = [2, 1, 1, 1]     # forward -> vel1
-endpose_angle22p5_vel1[2,:] = [2, 1, 1, 2]     # forward -> vel2
-endpose_angle22p5_vel1[3,:] = [3, 2, 2, 0]     # forward turn ccw -> vel0
-endpose_angle22p5_vel1[4,:] = [3, 2, 2, 1]     # forward turn ccw -> vel1
-endpose_angle22p5_vel1[5,:] = [3, 2, 2, 2]     # forward turn ccw -> vel2
-endpose_angle22p5_vel1[6,:] = [4, 1, 0, 0]     # forward turn cw -> vel0 
-endpose_angle22p5_vel1[7,:] = [4, 1, 0, 1]     # forward turn cw -> vel1 
-endpose_angle22p5_vel1[8,:] = [4, 1, 0, 2]     # forward turn cw -> vel2 
-endpose_angle22p5_vel1[9,:] = [8, 4, 1, 1]     # forward long -> vel1
-endpose_angle22p5_vel1[10,:] = [8, 4, 1, 2]    # forward long -> vel2
-endpose_angle22p5_vel1[11,:] = [8, 4, 1, 3]    # forward long -> vel3
-endpose_angle22p5_vel1[12,:] = [7, 5, 2, 1]    # forward turn ccw long ->vel1
-endpose_angle22p5_vel1[13,:] = [7, 5, 2, 2]    # forward turn ccw long ->vel2
-endpose_angle22p5_vel1[14,:] = [7, 5, 2, 3]    # forward turn ccw long ->vel3
-endpose_angle22p5_vel1[15,:] = [9, 3, 0, 1]    # forward turn cw long -> vel1
-endpose_angle22p5_vel1[16,:] = [9, 3, 0, 2]    # forward turn cw long -> vel2
-endpose_angle22p5_vel1[17,:] = [9, 3, 0, 3]    # forward turn cw long -> vel3
+endpose_angle22p5_vel0[0,:] = [-2, -1, 0, 0]     # backward -> vel0
+endpose_angle22p5_vel0[1,:] = [-2, -1, 0, -1]     # backward -> vel1
+endpose_angle22p5_vel0[2,:] = [-3, -2, 1, -1]     # backward turn ccw -> vel1
+endpose_angle22p5_vel0[3,:] = [-3, -1, -1, -1]   # backward turn cw -> vel1 
+endpose_angle22p5_vel0[4,:] = [2, 1, 0, 0]     # forward -> vel0
+endpose_angle22p5_vel0[5,:] = [2, 1, 0, 1]     # forward -> vel1
+endpose_angle22p5_vel0[6,:] = [4, 2, 0, 1]     # forward long -> vel1
+endpose_angle22p5_vel0[7,:] = [3, 2, 1, 1]     # forward turn ->vel1
+endpose_angle22p5_vel0[8,:] = [3, 1, -1, 1]     # forward turn -> vel1
 
-endpose_angle22p5_vel2[0,:] = [2, 1, 1, 1]     # forward -> vel1
-endpose_angle22p5_vel2[1,:] = [2, 1, 1, 2]     # forward -> vel2
-endpose_angle22p5_vel2[2,:] = [2, 1, 1, 3]     # forward -> vel3
-endpose_angle22p5_vel2[3,:] = [3, 2, 2, 1]     # forward turn ccw -> vel1
-endpose_angle22p5_vel2[4,:] = [3, 2, 2, 2]     # forward turn ccw -> vel2
-endpose_angle22p5_vel2[5,:] = [3, 2, 2, 3]     # forward turn ccw -> vel3
-endpose_angle22p5_vel2[6,:] = [4, 1, 0, 1]     # forward turn cw -> vel1 
-endpose_angle22p5_vel2[7,:] = [4, 1, 0, 2]     # forward turn cw -> vel2 
-endpose_angle22p5_vel2[8,:] = [4, 1, 0, 3]     # forward turn cw -> vel3 
-endpose_angle22p5_vel2[9,:] = [8, 4, 1, 2]     # forward long -> vel2
-endpose_angle22p5_vel2[10,:] = [8, 4, 1, 3]    # forward long -> vel3
-endpose_angle22p5_vel2[11,:] = [7, 5, 2, 2]    # forward turn ccw long ->vel2
-endpose_angle22p5_vel2[12,:] = [7, 5, 2, 3]    # forward turn ccw long ->vel3
-endpose_angle22p5_vel2[13,:] = [9, 3, 0, 2]    # forward turn cw long -> vel2
-endpose_angle22p5_vel2[14,:] = [9, 3, 0, 3]    # forward turn cw long -> vel3
+endpose_angle22p5_vel1[0,:] = [2, 1, 0, 0]     # forward -> vel0
+endpose_angle22p5_vel1[1,:] = [2, 1, 0, 1]     # forward -> vel1
+endpose_angle22p5_vel1[2,:] = [3, 2, 1, 0]     # forward turn ccw -> vel0
+endpose_angle22p5_vel1[3,:] = [3, 2, 1, 1]     # forward turn ccw -> vel1
+endpose_angle22p5_vel1[4,:] = [3, 1, -1, 0]     # forward turn cw -> vel0 
+endpose_angle22p5_vel1[5,:] = [3, 1, -1, 1]     # forward turn cw -> vel1 
+endpose_angle22p5_vel1[6,:] = [4, 2, 0, 1]     # forward long -> vel1
+endpose_angle22p5_vel1[7,:] = [4, 2, 0, 2]    # forward long -> vel2
+endpose_angle22p5_vel1[8,:] = [4, 3, 1, 1]    # forward turn ccw long ->vel1
+endpose_angle22p5_vel1[9,:] = [4, 3, 1, 2]    # forward turn ccw long ->vel2
+endpose_angle22p5_vel1[10,:] = [4, 1, -1, 1]    # forward turn cw long -> vel1
+endpose_angle22p5_vel1[11,:] = [4, 1, -1, 2]    # forward turn cw long -> vel2
 
-endpose_angle22p5_vel3[0,:] = [2, 1, 1, 2]     # forward -> vel2
-endpose_angle22p5_vel3[1,:] = [2, 1, 1, 3]     # forward -> vel3
-endpose_angle22p5_vel3[2,:] = [3, 2, 2, 2]     # forward turn ccw -> vel2
-endpose_angle22p5_vel3[3,:] = [3, 2, 2, 3]     # forward turn ccw -> vel3
-endpose_angle22p5_vel3[4,:] = [4, 1, 0, 2]     # forward turn cw -> vel2 
-endpose_angle22p5_vel3[5,:] = [4, 1, 0, 3]     # forward turn cw -> vel3 
-endpose_angle22p5_vel3[6,:] = [8, 4, 1, 3]     # forward long -> vel3
-endpose_angle22p5_vel3[7,:] = [7, 5, 2, 3]     # forward turn ccw long ->vel3
-endpose_angle22p5_vel3[8,:] = [9, 3, 0, 3]     # forward turn cw long -> vel3
+endpose_angle22p5_vel2[0,:] = [2, 1, 0, 2]     # forward -> vel2
+endpose_angle22p5_vel2[1,:] = [4, 3, 1, 1]     # forward turn ccw -> vel1
+endpose_angle22p5_vel2[2,:] = [4, 3, 1, 2]     # forward turn ccw -> vel2
+endpose_angle22p5_vel2[3,:] = [4, 1, -1, 1]     # forward turn cw -> vel1 
+endpose_angle22p5_vel2[4,:] = [4, 1, -1, 2]     # forward turn cw -> vel2 
+endpose_angle22p5_vel2[5,:] = [6, 3, 0, 1]     # forward long -> vel1
+endpose_angle22p5_vel2[6,:] = [6, 3, 0, 2]     # forward long -> vel2
+endpose_angle22p5_vel2[7,:] = [6, 3, 0, 3]    # forward long -> vel3
+endpose_angle22p5_vel2[8,:] = [6, 4, 1, 1]    # forward turn ccw long ->vel1
+endpose_angle22p5_vel2[9,:] = [6, 4, 1, 2]    # forward turn ccw long ->vel2
+endpose_angle22p5_vel2[10,:] = [6, 4, 1, 3]    # forward turn ccw long ->vel3
+endpose_angle22p5_vel2[11,:] = [6, 2, -1, 1]    # forward turn cw long -> vel1
+endpose_angle22p5_vel2[12,:] = [6, 2, -1, 2]    # forward turn cw long -> vel2
+endpose_angle22p5_vel2[13,:] = [6, 2, -1, 3]    # forward turn cw long -> vel3
+
+endpose_angle22p5_vel3[0,:] = [2, 1, 0, 3]     # forward -> vel3
+endpose_angle22p5_vel3[1,:] = [8, 4, 0, 2]     # forward long -> vel2
+endpose_angle22p5_vel3[2,:] = [8, 4, 0, 3]     # forward long -> vel3
+endpose_angle22p5_vel3[3,:] = [8, 4, 0, 4]     # forward long -> vel4
+endpose_angle22p5_vel3[4,:] = [7, 5, 1, 2]     # forward turn ccw long ->vel2
+endpose_angle22p5_vel3[5,:] = [7, 5, 1, 3]     # forward turn ccw long ->vel3
+endpose_angle22p5_vel3[6,:] = [8, 2, -1, 2]     # forward turn cw long -> vel2
+endpose_angle22p5_vel3[7,:] = [8, 2, -1, 3]     # forward turn cw long -> vel3
+
+endpose_angle22p5_vel4[0,:] = [2, 1, 0, 4]     # forward -> vel4
+endpose_angle22p5_vel4[1,:] = [12, 6, 0, 3]     # forward long -> vel3
+endpose_angle22p5_vel4[2,:] = [12, 6, 0, 4]     # forward long -> vel4
+endpose_angle22p5_vel4[3,:] = [12, 6, 0, 5]     # forward long -> vel5
+
+endpose_angle22p5_vel5[0,:] = [2, 1, 0, 5]     # forward -> vel5
+endpose_angle22p5_vel5[1,:] = [12, 6, 0, 4]     # forward long -> vel4
+endpose_angle22p5_vel5[2,:] = [12, 6, 0, 5]     # forward long -> vel5
 
 # for 45 degrees (2)
 ##############################################################################
-endpose_angle45_vel0[0,:] = [1, 1, 2, 0]     # forward -> vel0
-endpose_angle45_vel0[1,:] = [1, 1, 2, 1]     # forward -> vel1
-endpose_angle45_vel0[2,:] = [0, 0, 3, 0]     # rotate ccw in place
-endpose_angle45_vel0[3,:] = [0, 0, 1, 0]     # rotate cw in place
-endpose_angle45_vel0[4,:] = [3, 3, 2, 1]     # forward long -> vel1
-endpose_angle45_vel0[5,:] = [3, 3, 2, 2]     # forward long -> vel2
-endpose_angle45_vel0[6,:] = [2, 4, 3, 1]     # forward turn ccw long ->vel1
-endpose_angle45_vel0[7,:] = [2, 4, 3, 2]     # forward turn ccw long ->vel2
-endpose_angle45_vel0[8,:] = [4, 2, 1, 1]     # forward turn cw long -> vel1
-endpose_angle45_vel0[9,:] = [4, 2, 1, 2]     # forward turn cw long -> vel2
+endpose_angle45_veln1[0,:] = [-1, -1, 0, 0]     # backward -> vel0
+endpose_angle45_veln1[1,:] = [-1, -1, 0, -1]     # backward -> vel1
+endpose_angle45_veln1[2,:] = [-1, -2, 1, 0]     # backward turn ccw -> vel0
+endpose_angle45_veln1[3,:] = [-1, -2, 1, -1]     # backward turn ccw -> vel1
+endpose_angle45_veln1[4,:] = [-2, -1, -1, 0]   # backward turn cw -> vel0 
+endpose_angle45_veln1[5,:] = [-2, -1, -1, -1]   # backward turn cw -> vel1 
 
-endpose_angle45_vel1[0,:] = [1, 1, 2, 0]     # forward -> vel0
-endpose_angle45_vel1[1,:] = [1, 1, 2, 1]     # forward -> vel1
-endpose_angle45_vel1[2,:] = [1, 1, 2, 2]     # forward -> vel2
-endpose_angle45_vel1[3,:] = [1, 2, 3, 0]     # forward turn ccw -> vel0
-endpose_angle45_vel1[4,:] = [1, 2, 3, 1]     # forward turn ccw -> vel1
-endpose_angle45_vel1[5,:] = [1, 2, 3, 2]     # forward turn ccw -> vel2
-endpose_angle45_vel1[6,:] = [2, 1, 1, 0]     # forward turn cw -> vel0 
-endpose_angle45_vel1[7,:] = [2, 1, 1, 1]     # forward turn cw -> vel1 
-endpose_angle45_vel1[8,:] = [2, 1, 1, 2]     # forward turn cw -> vel2 
-endpose_angle45_vel1[9,:] = [6, 6, 2, 1]     # forward long -> vel1
-endpose_angle45_vel1[10,:] = [6, 6, 2, 2]    # forward long -> vel2
-endpose_angle45_vel1[11,:] = [6, 6, 2, 3]    # forward long -> vel3
-endpose_angle45_vel1[12,:] = [5, 7, 3, 1]    # forward turn ccw long ->vel1
-endpose_angle45_vel1[13,:] = [5, 7, 3, 2]    # forward turn ccw long ->vel2
-endpose_angle45_vel1[14,:] = [5, 7, 3, 3]    # forward turn ccw long ->vel3
-endpose_angle45_vel1[15,:] = [7, 5, 1, 1]    # forward turn cw long -> vel1
-endpose_angle45_vel1[16,:] = [7, 5, 1, 2]    # forward turn cw long -> vel2
-endpose_angle45_vel1[17,:] = [7, 5, 1, 3]    # forward turn cw long -> vel3
+endpose_angle45_vel0[0,:] = [-1, -1, 0, 0]     # backward -> vel0
+endpose_angle45_vel0[1,:] = [-1, -1, 0, -1]     # backward -> vel1
+endpose_angle45_vel0[2,:] = [-1, -2, 1, -1]     # backward turn ccw -> vel1
+endpose_angle45_vel0[3,:] = [-2, -1, -1, -1]   # backward turn cw -> vel1 
+endpose_angle45_vel0[4,:] = [1, 1, 0, 0]     # forward -> vel0
+endpose_angle45_vel0[5,:] = [1, 1, 0, 1]     # forward -> vel1
+endpose_angle45_vel0[6,:] = [2, 2, 0, 1]     # forward long -> vel1
+endpose_angle45_vel0[7,:] = [1, 2, 1, 1]     # forward turn ccw long ->vel1
+endpose_angle45_vel0[8,:] = [2, 1, -1, 1]     # forward turn cw long -> vel1
 
-endpose_angle45_vel2[0,:] = [1, 1, 2, 1]     # forward -> vel1
-endpose_angle45_vel2[1,:] = [1, 1, 2, 2]     # forward -> vel2
-endpose_angle45_vel2[2,:] = [1, 1, 2, 3]     # forward -> vel3
-endpose_angle45_vel2[3,:] = [2, 4, 3, 1]     # forward turn ccw -> vel1
-endpose_angle45_vel2[4,:] = [2, 4, 3, 2]     # forward turn ccw -> vel2
-endpose_angle45_vel2[5,:] = [2, 4, 3, 3]     # forward turn ccw -> vel3
-endpose_angle45_vel2[6,:] = [4, 2, 1, 1]     # forward turn cw -> vel1 
-endpose_angle45_vel2[7,:] = [4, 2, 1, 2]     # forward turn cw -> vel2 
-endpose_angle45_vel2[8,:] = [4, 2, 1, 3]     # forward turn cw -> vel3 
-endpose_angle45_vel2[9,:] = [6, 6, 2, 2]     # forward long -> vel2
-endpose_angle45_vel2[10,:] = [6, 6, 2, 3]    # forward long -> vel3
-endpose_angle45_vel2[11,:] = [5, 7, 3, 2]    # forward turn ccw long ->vel2
-endpose_angle45_vel2[12,:] = [5, 7, 3, 3]    # forward turn ccw long ->vel3
-endpose_angle45_vel2[13,:] = [7, 5, 1, 2]    # forward turn cw long -> vel2
-endpose_angle45_vel2[14,:] = [7, 5, 1, 3]    # forward turn cw long -> vel3
+endpose_angle45_vel1[0,:] = [2, 2, 0, 0]     # forward -> vel0
+endpose_angle45_vel1[1,:] = [2, 2, 0, 1]     # forward -> vel1
+endpose_angle45_vel1[2,:] = [1, 2, 1, 0]     # forward turn ccw -> vel0
+endpose_angle45_vel1[3,:] = [1, 2, 1, 1]     # forward turn ccw -> vel1
+endpose_angle45_vel1[4,:] = [2, 1, -1, 0]     # forward turn cw -> vel0 
+endpose_angle45_vel1[5,:] = [2, 1, -1, 1]     # forward turn cw -> vel1 
+endpose_angle45_vel1[6,:] = [4, 4, 0, 1]     # forward long -> vel1
+endpose_angle45_vel1[7,:] = [4, 4, 0, 2]    # forward long -> vel2
+endpose_angle45_vel1[8,:] = [2, 4, 1, 1]    # forward turn ccw long ->vel1
+endpose_angle45_vel1[9,:] = [2, 4, 1, 2]    # forward turn ccw long ->vel2
+endpose_angle45_vel1[10,:] = [4, 2, -1, 1]    # forward turn cw long -> vel1
+endpose_angle45_vel1[11,:] = [4, 2, -1, 2]    # forward turn cw long -> vel2
 
-endpose_angle45_vel3[0,:] = [1, 1, 2, 2]     # forward -> vel2
-endpose_angle45_vel3[1,:] = [1, 1, 2, 3]     # forward -> vel3
-endpose_angle45_vel3[2,:] = [2, 4, 3, 2]     # forward turn ccw -> vel2
-endpose_angle45_vel3[3,:] = [2, 4, 3, 3]     # forward turn ccw -> vel3
-endpose_angle45_vel3[4,:] = [4, 2, 1, 2]     # forward turn cw -> vel2 
-endpose_angle45_vel3[5,:] = [4, 2, 1, 3]     # forward turn cw -> vel3 
-endpose_angle45_vel3[6,:] = [6, 6, 2, 3]     # forward long -> vel3
-endpose_angle45_vel3[7,:] = [5, 7, 3, 3]     # forward turn ccw long ->vel3
-endpose_angle45_vel3[8,:] = [7, 5, 1, 3]     # forward turn cw long -> vel3
+endpose_angle45_vel2[0,:] = [1, 1, 0, 2]     # forward -> vel2
+endpose_angle45_vel2[1,:] = [2, 4, 1, 1]     # forward turn ccw -> vel1
+endpose_angle45_vel2[2,:] = [2, 4, 1, 2]     # forward turn ccw -> vel2
+endpose_angle45_vel2[3,:] = [4, 2, -1, 1]     # forward turn cw -> vel1 
+endpose_angle45_vel2[4,:] = [4, 2, -1, 2]     # forward turn cw -> vel2 
+endpose_angle45_vel2[5,:] = [5, 5, 0, 1]     # forward long -> vel1
+endpose_angle45_vel2[6,:] = [5, 5, 0, 2]     # forward long -> vel2
+endpose_angle45_vel2[7,:] = [5, 5, 0, 3]    # forward long -> vel3
+endpose_angle45_vel2[8,:] = [3, 5, 1, 1]    # forward turn ccw long ->vel1
+endpose_angle45_vel2[9,:] = [3, 5, 1, 2]    # forward turn ccw long ->vel2
+endpose_angle45_vel2[10,:] = [3, 5, 1, 3]    # forward turn ccw long ->vel3
+endpose_angle45_vel2[11,:] = [5, 3, -1, 1]    # forward turn cw long -> vel1
+endpose_angle45_vel2[12,:] = [5, 3, -1, 2]    # forward turn cw long -> vel2
+endpose_angle45_vel2[13,:] = [5, 3, -1, 3]    # forward turn cw long -> vel3
 
-# for 67.5 degrees (3)
-##############################################################################
-endpose_angle67p5_vel0[0,:] = [1, 2, 3, 0]     # forward -> vel0
-endpose_angle67p5_vel0[1,:] = [1, 2, 3, 1]     # forward -> vel1
-endpose_angle67p5_vel0[2,:] = [0, 0, 4, 0]     # rotate ccw in place
-endpose_angle67p5_vel0[3,:] = [0, 0, 2, 0]     # rotate cw in place
-endpose_angle67p5_vel0[4,:] = [2, 4, 3, 1]     # forward long -> vel1
-endpose_angle67p5_vel0[5,:] = [2, 4, 3, 2]     # forward long -> vel2
-endpose_angle67p5_vel0[6,:] = [2, 3, 4, 1]     # forward turn ccw long ->vel1
-endpose_angle67p5_vel0[7,:] = [2, 3, 4, 2]     # forward turn ccw long ->vel2
-endpose_angle67p5_vel0[8,:] = [1, 4, 2, 1]     # forward turn cw long -> vel1
-endpose_angle67p5_vel0[9,:] = [1, 4, 2, 2]     # forward turn cw long -> vel2
+endpose_angle45_vel3[0,:] = [1, 1, 0, 3]     # forward -> vel3
+endpose_angle45_vel3[1,:] = [6, 6, 0, 2]     # forward long -> vel2
+endpose_angle45_vel3[2,:] = [6, 6, 0, 3]     # forward long -> vel3
+endpose_angle45_vel3[3,:] = [6, 6, 0, 4]     # forward long -> vel4
+endpose_angle45_vel3[4,:] = [4, 6, 1, 2]     # forward turn ccw long ->vel2
+endpose_angle45_vel3[5,:] = [4, 6, 1, 3]     # forward turn ccw long ->vel3
+endpose_angle45_vel3[6,:] = [6, 4, -1, 2]     # forward turn cw long -> vel2
+endpose_angle45_vel3[7,:] = [6, 4, -1, 3]     # forward turn cw long -> vel3
 
-endpose_angle67p5_vel1[0,:] = [1, 2, 3, 0]     # forward -> vel0
-endpose_angle67p5_vel1[1,:] = [1, 2, 3, 1]     # forward -> vel1
-endpose_angle67p5_vel1[2,:] = [1, 2, 3, 2]     # forward -> vel2
-endpose_angle67p5_vel1[3,:] = [2, 3, 4, 0]     # forward turn ccw -> vel0
-endpose_angle67p5_vel1[4,:] = [2, 3, 4, 1]     # forward turn ccw -> vel1
-endpose_angle67p5_vel1[5,:] = [2, 3, 4, 2]     # forward turn ccw -> vel2
-endpose_angle67p5_vel1[6,:] = [1, 4, 2, 0]     # forward turn cw -> vel0 
-endpose_angle67p5_vel1[7,:] = [1, 4, 2, 1]     # forward turn cw -> vel1 
-endpose_angle67p5_vel1[8,:] = [1, 4, 2, 2]     # forward turn cw -> vel2 
-endpose_angle67p5_vel1[9,:] = [4, 8, 3, 1]     # forward long -> vel1
-endpose_angle67p5_vel1[10,:] = [4, 8, 3, 2]    # forward long -> vel2
-endpose_angle67p5_vel1[11,:] = [4, 8, 3, 3]    # forward long -> vel3
-endpose_angle67p5_vel1[12,:] = [5, 7, 4, 1]    # forward turn ccw long ->vel1
-endpose_angle67p5_vel1[13,:] = [5, 7, 4, 2]    # forward turn ccw long ->vel2
-endpose_angle67p5_vel1[14,:] = [5, 7, 4, 3]    # forward turn ccw long ->vel3
-endpose_angle67p5_vel1[15,:] = [3, 9, 2, 1]    # forward turn cw long -> vel1
-endpose_angle67p5_vel1[16,:] = [3, 9, 2, 2]    # forward turn cw long -> vel2
-endpose_angle67p5_vel1[17,:] = [3, 9, 2, 3]    # forward turn cw long -> vel3
+endpose_angle45_vel4[0,:] = [1, 1, 0, 4]     # forward -> vel4
+endpose_angle45_vel4[1,:] = [9, 9, 0, 3]     # forward long -> vel3
+endpose_angle45_vel4[2,:] = [9, 9, 0, 4]     # forward long -> vel4
+endpose_angle45_vel4[3,:] = [9, 9, 0, 5]     # forward long -> vel5
 
-endpose_angle67p5_vel2[0,:] = [1, 2, 3, 1]     # forward -> vel1
-endpose_angle67p5_vel2[1,:] = [1, 2, 3, 2]     # forward -> vel2
-endpose_angle67p5_vel2[2,:] = [1, 2, 3, 3]     # forward -> vel3
-endpose_angle67p5_vel2[3,:] = [2, 3, 4, 1]     # forward turn ccw -> vel1
-endpose_angle67p5_vel2[4,:] = [2, 3, 4, 2]     # forward turn ccw -> vel2
-endpose_angle67p5_vel2[5,:] = [2, 3, 4, 3]     # forward turn ccw -> vel3
-endpose_angle67p5_vel2[6,:] = [1, 4, 2, 1]     # forward turn cw -> vel1 
-endpose_angle67p5_vel2[7,:] = [1, 4, 2, 2]     # forward turn cw -> vel2 
-endpose_angle67p5_vel2[8,:] = [1, 4, 2, 3]     # forward turn cw -> vel3 
-endpose_angle67p5_vel2[9,:] = [4, 8, 3, 2]     # forward long -> vel2
-endpose_angle67p5_vel2[10,:] = [4, 8, 3, 3]    # forward long -> vel3
-endpose_angle67p5_vel2[11,:] = [5, 7, 4, 2]    # forward turn ccw long ->vel2
-endpose_angle67p5_vel2[12,:] = [5, 7, 4, 3]    # forward turn ccw long ->vel3
-endpose_angle67p5_vel2[13,:] = [3, 9, 2, 2]    # forward turn cw long -> vel2
-endpose_angle67p5_vel2[14,:] = [3, 9, 2, 3]    # forward turn cw long -> vel3
+endpose_angle45_vel5[0,:] = [1, 1, 0, 5]     # forward -> vel5
+endpose_angle45_vel5[1,:] = [9, 9, 0, 4]     # forward long -> vel4
+endpose_angle45_vel5[2,:] = [9, 9, 0, 5]     # forward long -> vel5
 
-endpose_angle67p5_vel3[0,:] = [1, 2, 3, 2]     # forward -> vel2
-endpose_angle67p5_vel3[1,:] = [1, 2, 3, 3]     # forward -> vel3
-endpose_angle67p5_vel3[2,:] = [2, 3, 4, 2]     # forward turn ccw -> vel2
-endpose_angle67p5_vel3[3,:] = [2, 3, 4, 3]     # forward turn ccw -> vel3
-endpose_angle67p5_vel3[4,:] = [1, 4, 2, 2]     # forward turn cw -> vel2 
-endpose_angle67p5_vel3[5,:] = [1, 4, 2, 3]     # forward turn cw -> vel3 
-endpose_angle67p5_vel3[6,:] = [4, 8, 3, 3]     # forward long -> vel3
-endpose_angle67p5_vel3[7,:] = [5, 7, 4, 3]     # forward turn ccw long ->vel3
-endpose_angle67p5_vel3[8,:] = [3, 9, 2, 3]     # forward turn cw long -> vel3
-
-# for 90 degrees (4)
-##############################################################################
-endpose_angle90_vel0[0,:] = [0, 1, 4, 0]     # forward -> vel0
-endpose_angle90_vel0[1,:] = [0, 1, 4, 1]     # forward -> vel1
-endpose_angle90_vel0[2,:] = [0, 0, 5, 0]     # rotate ccw in place
-endpose_angle90_vel0[3,:] = [0, 0, 3, 0]    # rotate cw in place
-endpose_angle90_vel0[4,:] = [0, 4, 4, 1]     # forward long -> vel1
-endpose_angle90_vel0[5,:] = [0, 4, 4, 2]     # forward long -> vel2
-endpose_angle90_vel0[6,:] = [-1, 4, 5, 1]     # forward turn ccw long ->vel1
-endpose_angle90_vel0[7,:] = [-1, 4, 5, 2]     # forward turn ccw long ->vel2
-endpose_angle90_vel0[8,:] = [1, 4, 3, 1]   # forward turn cw long -> vel1
-endpose_angle90_vel0[9,:] = [1, 4, 3, 2]   # forward turn cw long -> vel2
-
-endpose_angle90_vel1[0,:] = [0, 1, 4, 0]     # forward -> vel0
-endpose_angle90_vel1[1,:] = [0, 1, 4, 1]     # forward -> vel1
-endpose_angle90_vel1[2,:] = [0, 1, 4, 2]     # forward -> vel2
-endpose_angle90_vel1[3,:] = [-1, 2, 5, 0]     # forward turn ccw -> vel0
-endpose_angle90_vel1[4,:] = [-1, 2, 5, 1]     # forward turn ccw -> vel1
-endpose_angle90_vel1[5,:] = [-1, 2, 5, 2]     # forward turn ccw -> vel2
-endpose_angle90_vel1[6,:] = [1, 2, 3, 0]   # forward turn cw -> vel0 
-endpose_angle90_vel1[7,:] = [1, 2, 3, 1]   # forward turn cw -> vel1 
-endpose_angle90_vel1[8,:] = [1, 2, 3, 2]   # forward turn cw -> vel2 
-endpose_angle90_vel1[9,:] = [0, 8, 4, 1]     # forward long -> vel1
-endpose_angle90_vel1[10,:] = [0, 8, 4, 2]    # forward long -> vel2
-endpose_angle90_vel1[11,:] = [0, 8, 4, 3]    # forward long -> vel3
-endpose_angle90_vel1[12,:] = [-1, 8, 5, 1]    # forward turn ccw long ->vel1
-endpose_angle90_vel1[13,:] = [-1, 8, 5, 2]    # forward turn ccw long ->vel2
-endpose_angle90_vel1[14,:] = [-1, 8, 5, 3]    # forward turn ccw long ->vel3
-endpose_angle90_vel1[15,:] = [1, 8, 3, 1]  # forward turn cw long -> vel1
-endpose_angle90_vel1[16,:] = [1, 8, 3, 2]  # forward turn cw long -> vel2
-endpose_angle90_vel1[17,:] = [1, 8, 3, 3]  # forward turn cw long -> vel3
-
-endpose_angle90_vel2[0,:] = [0, 1, 4, 1]     # forward -> vel1
-endpose_angle90_vel2[1,:] = [0, 1, 4, 2]     # forward -> vel2
-endpose_angle90_vel2[2,:] = [0, 1, 4, 3]     # forward -> vel3
-endpose_angle90_vel2[3,:] = [-1, 4, 5, 1]     # forward turn ccw -> vel1
-endpose_angle90_vel2[4,:] = [-1, 4, 5, 2]     # forward turn ccw -> vel2
-endpose_angle90_vel2[5,:] = [-1, 4, 5, 3]     # forward turn ccw -> vel3
-endpose_angle90_vel2[6,:] = [1, 4, 3, 1]   # forward turn cw -> vel1
-endpose_angle90_vel2[7,:] = [1, 4, 3, 2]   # forward turn cw -> vel2
-endpose_angle90_vel2[8,:] = [1, 4, 3, 3]   # forward turn cw -> vel3
-endpose_angle90_vel2[9,:] = [0, 8, 4, 2]     # forward long -> vel2
-endpose_angle90_vel2[10,:] = [0, 8, 4, 3]    # forward long -> vel3
-endpose_angle90_vel2[11,:] = [-1, 8, 1, 2]    # forward turn ccw long ->vel2
-endpose_angle90_vel2[12,:] = [-1, 8, 1, 3]    # forward turn ccw long ->vel3
-endpose_angle90_vel2[13,:] = [1, 8, 15, 2]  # forward turn cw long -> vel2
-endpose_angle90_vel2[14,:] = [1, 8, 15, 3]  # forward turn cw long -> vel3
-
-endpose_angle90_vel3[0,:] = [0, 1, 4, 2]     # forward -> vel2
-endpose_angle90_vel3[1,:] = [0, 1, 4, 3]     # forward -> vel3
-endpose_angle90_vel3[2,:] = [-1, 4, 5, 2]     # forward turn ccw -> vel2
-endpose_angle90_vel3[3,:] = [-1, 4, 5, 3]     # forward turn ccw -> vel3
-endpose_angle90_vel3[4,:] = [1, 4, 3, 2]   # forward turn cw -> vel2
-endpose_angle90_vel3[5,:] = [1, 4, 3, 3]   # forward turn cw -> vel3
-endpose_angle90_vel3[6,:] = [0, 8, 4, 3]     # forward long -> vel3
-endpose_angle90_vel3[7,:] = [-1, 8, 5, 3]     # forward turn ccw long ->vel3
-endpose_angle90_vel3[8,:] = [1, 8, 3, 3]   # forward turn cw long -> vel3
 
 for angleIndex in range(0,numAngles):
-    endpose = np.zeros(4)
+    # vel -1
+    for primIndex in range(0,numPrimsPerVeln1):
+        endpose = np.zeros(4)
+        currentangle = angleIndex*2*pi/numAngles
+        currentangle_36000int = round(angleIndex*36000/numAngles)
+
+        if currentangle_36000int % 9000 == 0:
+            #print("using angle0")
+            endpose = endpose_angle0_veln1[primIndex,:]
+            angle = currentangle
+        elif currentangle_36000int % 4500 == 0:
+            #print("using angle45")
+            endpose = endpose_angle45_veln1[primIndex,:]
+            angle = currentangle - 45*pi/180
+        elif (currentangle_36000int-6750) % 9000 == 0:
+            #print("using angle67p5")
+            endpose[0] = endpose_angle22p5_veln1[primIndex,1]
+            endpose[1] = endpose_angle22p5_veln1[primIndex,0]
+            endpose[2] = -endpose_angle22p5_veln1[primIndex,2]
+            endpose[3] = endpose_angle22p5_veln1[primIndex,3]
+            angle = currentangle - 67.5*pi/180
+        elif (currentangle_36000int-2250) % 9000 == 0:
+            #print("using angle22p5")
+            endpose = endpose_angle22p5_veln1[primIndex,:]
+            angle = currentangle - 22.5*pi/180
+
+        generateIntermediatePoses(angleIndex, currentangle, -1, angle, endpose)
+
+    # vel 0
     for primIndex in range(0,numPrimsPerVel0):
-        if angleIndex == 0: # 0
+        endpose = np.zeros(4)
+        currentangle = angleIndex*2*pi/numAngles
+        currentangle_36000int = round(angleIndex*36000/numAngles)
+
+        if currentangle_36000int % 9000 == 0:
+            #print("using angle0")
             endpose = endpose_angle0_vel0[primIndex,:]
-        if angleIndex == 1: # 22.5
-            endpose = endpose_angle22p5_vel0[primIndex,:]
-        if angleIndex == 2: # 45
+            angle = currentangle
+        elif currentangle_36000int % 4500 == 0:
+            #print("using angle45")
             endpose = endpose_angle45_vel0[primIndex,:]
-        if angleIndex == 3: # 67.5
-            endpose = endpose_angle67p5_vel0[primIndex,:]
-        if angleIndex == 4: # 90
-            endpose = endpose_angle90_vel0[primIndex,:]
-        if angleIndex == 5: # 112.5
-            endpose[0] = endpose_angle67p5_vel0[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel0[primIndex,1]
-            if endpose_angle67p5_vel0[primIndex,2] == 2:
-                endpose[2] = 6
-            if endpose_angle67p5_vel0[primIndex,2] == 3:
-                endpose[2] = 5
-            if endpose_angle67p5_vel0[primIndex,2] == 4:
-                endpose[2] = 4
-            endpose[3] = endpose_angle67p5_vel0[primIndex,3] 
-        if angleIndex == 6: # 135
-            endpose[0] = endpose_angle45_vel0[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel0[primIndex,1]
-            if endpose_angle45_vel0[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle45_vel0[primIndex,2] == 2:
-                endpose[2] = 4
-            if endpose_angle45_vel0[primIndex,2] == 3:
-                endpose[2] = 5
-            endpose[3] = endpose_angle45_vel0[primIndex,3]
-        if angleIndex == 7: # 157.5
-            endpose[0] = endpose_angle22p5_vel0[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel0[primIndex,1]
-            if endpose_angle22p5_vel0[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel0[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle22p5_vel0[primIndex,2] == 2:
-                endpose[2] = 6
+            angle = currentangle - 45*pi/180
+        elif (currentangle_36000int-6750) % 9000 == 0:
+            #print("using angle67p5")
+            endpose[0] = endpose_angle22p5_vel0[primIndex,1]
+            endpose[1] = endpose_angle22p5_vel0[primIndex,0]
+            endpose[2] = -endpose_angle22p5_vel0[primIndex,2]
             endpose[3] = endpose_angle22p5_vel0[primIndex,3]
-        if angleIndex == 8: # 180
-            endpose[0] = endpose_angle0_vel0[primIndex,0] * -1
-            endpose[1] = endpose_angle0_vel0[primIndex,1]
-            if endpose_angle0_vel0[primIndex,2] == 15:
-                endpose[2] = 9
-            if endpose_angle0_vel0[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle0_vel0[primIndex,2] == 1:
-                endpose[2] = 7
-            endpose[3] = endpose_angle0_vel0[primIndex,3]
-        if angleIndex == 9:
-            endpose[0] = endpose_angle22p5_vel0[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel0[primIndex,1] * -1
-            if endpose_angle22p5_vel0[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel0[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle22p5_vel0[primIndex,2] == 2:
-                endpose[2] = 10
-            endpose[3] = endpose_angle22p5_vel0[primIndex,3]
-        if angleIndex == 10:
-            endpose[0] = endpose_angle45_vel0[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel0[primIndex,1] * -1
-            if endpose_angle45_vel0[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle45_vel0[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle45_vel0[primIndex,2] == 3:
-                endpose[2] = 11
-            endpose[3] = endpose_angle45_vel0[primIndex,3]
-        if angleIndex == 11:
-            endpose[0] = endpose_angle67p5_vel0[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel0[primIndex,1] * -1
-            if endpose_angle67p5_vel0[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle67p5_vel0[primIndex,2] == 3:
-                endpose[2] = 11
-            if endpose_angle67p5_vel0[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel0[primIndex,3] 
-        if angleIndex == 12:
-            endpose[0] = endpose_angle90_vel0[primIndex,0]
-            endpose[1] = endpose_angle90_vel0[primIndex,1] * -1
-            if endpose_angle90_vel0[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle90_vel0[primIndex,2] == 4:
-                endpose[2] = 12
-            if endpose_angle90_vel0[primIndex,2] == 5:
-                endpose[2] = 11
-            endpose[3] = endpose_angle90_vel0[primIndex,3]
-        if angleIndex == 13:
-            endpose[0] = endpose_angle67p5_vel0[primIndex,0] 
-            endpose[1] = endpose_angle67p5_vel0[primIndex,1] * -1
-            if endpose_angle67p5_vel0[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle67p5_vel0[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle67p5_vel0[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel0[primIndex,3] 
-        if angleIndex == 14:
-            endpose[0] = endpose_angle45_vel0[primIndex,0] 
-            endpose[1] = endpose_angle45_vel0[primIndex,1] * -1
-            if endpose_angle45_vel0[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle45_vel0[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle45_vel0[primIndex,2] == 3:
-                endpose[2] = 13
-            endpose[3] = endpose_angle45_vel0[primIndex,3]
-        if angleIndex == 15:
-            endpose[0] = endpose_angle22p5_vel0[primIndex,0] 
-            endpose[1] = endpose_angle22p5_vel0[primIndex,1] * -1
-            if endpose_angle22p5_vel0[primIndex,2] == 0:
-                endpose[2] = 0
-            if endpose_angle22p5_vel0[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle22p5_vel0[primIndex,2] == 2:
-                endpose[2] = 14
-            endpose[3] = endpose_angle22p5_vel0[primIndex,3]
+            angle = currentangle - 67.5*pi/180
+        elif (currentangle_36000int-2250) % 9000 == 0:
+            #print("using angle22p5")
+            endpose = endpose_angle22p5_vel0[primIndex,:]
+            angle = currentangle - 22.5*pi/180
 
-        # generate intermediate x,y positions w.r.t 0,0 (in meters)
-        numSamples = 10
-        intermPoses_m = np.zeros((numSamples,2))
-        endPose_m = [endpose[0]*resolution, endpose[1]*resolution]
-        # turn in place or move straight forward
-        if (endpose[0]==0 and endpose[1]==0) or endpose[2]==angleIndex:
-            for i in range(0,numSamples):
-                intermPoses_m[i,:] = [endPose_m[0]*i/(numSamples-1), endPose_m[1]*i/(numSamples-1)]
-        else:
-            R = [[math.cos(angleIndex*2*math.pi/numAngles), math.sin(endpose[2]*2*math.pi/numAngles) - math.sin(angleIndex*2*math.pi/numAngles)], \
-                 [math.sin(angleIndex*2*math.pi/numAngles), -math.cos(endpose[2]*2*math.pi/numAngles) - math.cos(angleIndex*2*math.pi/numAngles)]]
-            S = np.matmul(np.linalg.pinv(R), [[endPose_m[0]],[endPose_m[1]]])
-            l = S[0]
-            tvoverrv = S[1]
-            rv = endpose[2]*2*math.pi/numAngles + 1/tvoverrv
-            tv = tvoverrv*rv
-
-            for i in range(0,numSamples):
-                dt = i/numSamples
-                theta = angleIndex*2*math.pi/numAngles
-                if dt*tv < 1:
-                    intermPoses_m[i,:] = [dt*tv*math.cos(theta), \
-                                          dt*tv*math.sin(theta)]
-                else:
-                    dtheta = rv*(dt - 1/tv) + theta
-                    intermPoses_m[i,:] = [l*math.cos(theta) + tvoverrv*(math.sin(dtheta)-math.sin(theta)), \
-                                          l*math.sin(theta) - tvoverrv*(math.cos(dtheta)-math.cos(theta))]
-            
-            errorxy = [endPose_m[0] - intermPoses_m[numSamples-1,0], \
-                       endPose_m[1] - intermPoses_m[numSamples-1,1]]
-            interp = np.zeros(10)
-            for i in range(0,numSamples):
-                interp[i] = i/(numSamples-1)
-            intermPoses_m[:,0] = intermPoses_m[:,0] + errorxy[0]*interp
-            intermPoses_m[:,1] = intermPoses_m[:,1] + errorxy[1]*interp
-
-        # calculate primitive execution time (assuming straight line
-        primExecTime = 0.0
-        if (endpose[0]==0 and endpose[1]==0): # turn in place
-            primExecTime = timeToTurn22p5degsInPlace 
-        elif endpose[3]==0: # vel0 -> vel0 transition
-            r = math.sqrt(endPose_m[0]**2 + endPose_m[1]**2)/2
-            t = 2*r/(vel1/2)
-            primExecTime = 2*t
-        else:
-            r = math.sqrt(endPose_m[0]**2 + endPose_m[1]**2)
-            primExecTime = 2*r/(vel0 + endpose[3]*0.2)
-
-        primFile = open(filename, 'a')
-        primFile.write("startangle_i: %d\n" % (angleIndex))
-        primFile.write("startvel_i: 0\n")
-        primFile.write("endpose_i: %d %d %d %d\n" % (endpose[0],endpose[1],endpose[2],endpose[3]))
-        primFile.write("exectime: %.4f\n" % (primExecTime))
-        primFile.write("intermediateposes: %d\n" % (numSamples))
-        for i in range(0,numSamples):
-            primFile.write("%.4f %.4f\n" % (intermPoses_m[i,0], intermPoses_m[i,1]))
-
-
+        generateIntermediatePoses(angleIndex, currentangle, 0, angle, endpose)
+        
+    # vel 1
     for primIndex in range(0,numPrimsPerVel1):
-        if angleIndex == 0: # 0
+        endpose = np.zeros(4)
+        currentangle = angleIndex*2*pi/numAngles
+        currentangle_36000int = round(angleIndex*36000/numAngles)
+
+        if currentangle_36000int % 9000 == 0:
+            #print("using angle0")
             endpose = endpose_angle0_vel1[primIndex,:]
-        if angleIndex == 1: # 22.5
-            endpose = endpose_angle22p5_vel1[primIndex,:]
-        if angleIndex == 2: # 45
+            angle = currentangle
+        elif currentangle_36000int % 4500 == 0:
+            #print("using angle45")
             endpose = endpose_angle45_vel1[primIndex,:]
-        if angleIndex == 3: # 67.5
-            endpose = endpose_angle67p5_vel1[primIndex,:]
-        if angleIndex == 4: # 90
-            endpose = endpose_angle90_vel1[primIndex,:]
-        if angleIndex == 5: # 112.5
-            endpose[0] = endpose_angle67p5_vel1[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel1[primIndex,1]
-            if endpose_angle67p5_vel1[primIndex,2] == 2:
-                endpose[2] = 6
-            if endpose_angle67p5_vel1[primIndex,2] == 3:
-                endpose[2] = 5
-            if endpose_angle67p5_vel1[primIndex,2] == 4:
-                endpose[2] = 4
-            endpose[3] = endpose_angle67p5_vel1[primIndex,3] 
-        if angleIndex == 6: # 135
-            endpose[0] = endpose_angle45_vel1[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel1[primIndex,1]
-            if endpose_angle45_vel1[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle45_vel1[primIndex,2] == 2:
-                endpose[2] = 4
-            if endpose_angle45_vel1[primIndex,2] == 3:
-                endpose[2] = 5
-            endpose[3] = endpose_angle45_vel1[primIndex,3]
-        if angleIndex == 7: # 157.5
-            endpose[0] = endpose_angle22p5_vel1[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel1[primIndex,1]
-            if endpose_angle22p5_vel1[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel1[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle22p5_vel1[primIndex,2] == 2:
-                endpose[2] = 6
+            angle = currentangle - 45*pi/180
+        elif (currentangle_36000int-6750) % 9000 == 0:
+            #print("using angle67p5")
+            endpose[0] = endpose_angle22p5_vel1[primIndex,1]
+            endpose[1] = endpose_angle22p5_vel1[primIndex,0]
+            endpose[2] = -endpose_angle22p5_vel1[primIndex,2]
             endpose[3] = endpose_angle22p5_vel1[primIndex,3]
-        if angleIndex == 8: # 180
-            endpose[0] = endpose_angle0_vel1[primIndex,0] * -1
-            endpose[1] = endpose_angle0_vel1[primIndex,1]
-            if endpose_angle0_vel1[primIndex,2] == 15:
-                endpose[2] = 9
-            if endpose_angle0_vel1[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle0_vel1[primIndex,2] == 1:
-                endpose[2] = 7
-            endpose[3] = endpose_angle0_vel1[primIndex,3]
-        if angleIndex == 9:
-            endpose[0] = endpose_angle22p5_vel1[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel1[primIndex,1] * -1
-            if endpose_angle22p5_vel1[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel1[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle22p5_vel1[primIndex,2] == 2:
-                endpose[2] = 10
-            endpose[3] = endpose_angle22p5_vel1[primIndex,3]
-        if angleIndex == 10:
-            endpose[0] = endpose_angle45_vel1[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel1[primIndex,1] * -1
-            if endpose_angle45_vel1[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle45_vel1[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle45_vel1[primIndex,2] == 3:
-                endpose[2] = 11
-            endpose[3] = endpose_angle45_vel1[primIndex,3]
-        if angleIndex == 11:
-            endpose[0] = endpose_angle67p5_vel1[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel1[primIndex,1] * -1
-            if endpose_angle67p5_vel1[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle67p5_vel1[primIndex,2] == 3:
-                endpose[2] = 11
-            if endpose_angle67p5_vel1[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel1[primIndex,3] 
-        if angleIndex == 12:
-            endpose[0] = endpose_angle90_vel1[primIndex,0]
-            endpose[1] = endpose_angle90_vel1[primIndex,1] * -1
-            if endpose_angle90_vel1[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle90_vel1[primIndex,2] == 4:
-                endpose[2] = 12
-            if endpose_angle90_vel1[primIndex,2] == 5:
-                endpose[2] = 11
-            endpose[3] = endpose_angle90_vel1[primIndex,3]
-        if angleIndex == 13:
-            endpose[0] = endpose_angle67p5_vel1[primIndex,0] 
-            endpose[1] = endpose_angle67p5_vel1[primIndex,1] * -1
-            if endpose_angle67p5_vel1[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle67p5_vel1[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle67p5_vel1[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel1[primIndex,3] 
-        if angleIndex == 14:
-            endpose[0] = endpose_angle45_vel1[primIndex,0] 
-            endpose[1] = endpose_angle45_vel1[primIndex,1] * -1
-            if endpose_angle45_vel1[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle45_vel1[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle45_vel1[primIndex,2] == 3:
-                endpose[2] = 13
-            endpose[3] = endpose_angle45_vel1[primIndex,3]
-        if angleIndex == 15:
-            endpose[0] = endpose_angle22p5_vel1[primIndex,0] 
-            endpose[1] = endpose_angle22p5_vel1[primIndex,1] * -1
-            if endpose_angle22p5_vel1[primIndex,2] == 0:
-                endpose[2] = 0
-            if endpose_angle22p5_vel1[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle22p5_vel1[primIndex,2] == 2:
-                endpose[2] = 14
-            endpose[3] = endpose_angle22p5_vel1[primIndex,3]
+            angle = currentangle - 67.5*pi/180
+        elif (currentangle_36000int-2250) % 9000 == 0:
+            #print("using angle22p5")
+            endpose = endpose_angle22p5_vel1[primIndex,:]
+            angle = currentangle - 22.5*pi/180
 
-        # generate intermediate x,y positions w.r.t 0,0 (in meters)
-        numSamples = 10
-        intermPoses_m = np.zeros((numSamples,2))
-        endPose_m = [endpose[0]*resolution, endpose[1]*resolution]
-        # turn in place or move straight forward
-        if (endpose[0]==0 and endpose[1]==0) or endpose[2]==angleIndex:
-            for i in range(0,numSamples):
-                intermPoses_m[i,:] = [endPose_m[0]*i/(numSamples-1), endPose_m[1]*i/(numSamples-1)]
-        else:
-            R = [[math.cos(angleIndex*2*math.pi/numAngles), math.sin(endpose[2]*2*math.pi/numAngles) - math.sin(angleIndex*2*math.pi/numAngles)], \
-                 [math.sin(angleIndex*2*math.pi/numAngles), -math.cos(endpose[2]*2*math.pi/numAngles) - math.cos(angleIndex*2*math.pi/numAngles)]]
-            S = np.matmul(np.linalg.pinv(R), [[endPose_m[0]],[endPose_m[1]]])
-            l = S[0]
-            tvoverrv = S[1]
-            rv = endpose[2]*2*math.pi/numAngles + 1/tvoverrv
-            tv = tvoverrv*rv
-
-            for i in range(0,numSamples):
-                dt = i/numSamples
-                theta = angleIndex*2*math.pi/numAngles
-                if dt*tv < 1:
-                    intermPoses_m[i,:] = [dt*tv*math.cos(theta), \
-                                          dt*tv*math.sin(theta)]
-                else:
-                    dtheta = rv*(dt - 1/tv) + theta
-                    intermPoses_m[i,:] = [l*math.cos(theta) + tvoverrv*(math.sin(dtheta)-math.sin(theta)), \
-                                          l*math.sin(theta) - tvoverrv*(math.cos(dtheta)-math.cos(theta))]
-            
-            errorxy = [endPose_m[0] - intermPoses_m[numSamples-1,0], \
-                       endPose_m[1] - intermPoses_m[numSamples-1,1]]
-            interp = np.zeros(10)
-            for i in range(0,numSamples):
-                interp[i] = i/(numSamples-1)
-            intermPoses_m[:,0] = intermPoses_m[:,0] + errorxy[0]*interp
-            intermPoses_m[:,1] = intermPoses_m[:,1] + errorxy[1]*interp
-
-        # calculate primitive execution time (assuming straight line
-        r = math.sqrt(endPose_m[0]**2 + endPose_m[1]**2)
-        primExecTime = 2*r/(vel1 + endpose[3]*0.2)
-
-        primFile = open(filename, 'a')
-        primFile.write("startangle_i: %d\n" % (angleIndex))
-        primFile.write("startvel_i: 1\n")
-        primFile.write("endpose_i: %d %d %d %d\n" % (endpose[0],endpose[1],endpose[2],endpose[3]))
-        primFile.write("exectime: %.4f\n" % (primExecTime))
-        primFile.write("intermediateposes: %d\n" % (numSamples))
-        for i in range(0,numSamples):
-            primFile.write("%.4f %.4f\n" % (intermPoses_m[i,0], intermPoses_m[i,1]))
-
-
+        generateIntermediatePoses(angleIndex, currentangle, 1, angle, endpose)
+        
+    # vel 2
     for primIndex in range(0,numPrimsPerVel2):
-        if angleIndex == 0: # 0
+        endpose = np.zeros(4)
+        currentangle = angleIndex*2*pi/numAngles
+        currentangle_36000int = round(angleIndex*36000/numAngles)
+
+        if currentangle_36000int % 9000 == 0:
+            #print("using angle0")
             endpose = endpose_angle0_vel2[primIndex,:]
-        if angleIndex == 1: # 22.5
-            endpose = endpose_angle22p5_vel2[primIndex,:]
-        if angleIndex == 2: # 45
+            angle = currentangle
+        elif currentangle_36000int % 4500 == 0:
+            #print("using angle45")
             endpose = endpose_angle45_vel2[primIndex,:]
-        if angleIndex == 3: # 67.5
-            endpose = endpose_angle67p5_vel2[primIndex,:]
-        if angleIndex == 4: # 90
-            endpose = endpose_angle90_vel2[primIndex,:]
-        if angleIndex == 5: # 112.5
-            endpose[0] = endpose_angle67p5_vel2[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel2[primIndex,1]
-            if endpose_angle67p5_vel2[primIndex,2] == 2:
-                endpose[2] = 6
-            if endpose_angle67p5_vel2[primIndex,2] == 3:
-                endpose[2] = 5
-            if endpose_angle67p5_vel2[primIndex,2] == 4:
-                endpose[2] = 4
-            endpose[3] = endpose_angle67p5_vel2[primIndex,3] 
-        if angleIndex == 6: # 135
-            endpose[0] = endpose_angle45_vel2[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel2[primIndex,1]
-            if endpose_angle45_vel2[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle45_vel2[primIndex,2] == 2:
-                endpose[2] = 4
-            if endpose_angle45_vel2[primIndex,2] == 3:
-                endpose[2] = 5
-            endpose[3] = endpose_angle45_vel2[primIndex,3]
-        if angleIndex == 7: # 157.5
-            endpose[0] = endpose_angle22p5_vel2[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel2[primIndex,1]
-            if endpose_angle22p5_vel2[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel2[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle22p5_vel2[primIndex,2] == 2:
-                endpose[2] = 6
+            angle = currentangle - 45*pi/180
+        elif (currentangle_36000int-6750) % 9000 == 0:
+            #print("using angle67p5")
+            endpose[0] = endpose_angle22p5_vel2[primIndex,1]
+            endpose[1] = endpose_angle22p5_vel2[primIndex,0]
+            endpose[2] = -endpose_angle22p5_vel2[primIndex,2]
             endpose[3] = endpose_angle22p5_vel2[primIndex,3]
-        if angleIndex == 8: # 180
-            endpose[0] = endpose_angle0_vel2[primIndex,0] * -1
-            endpose[1] = endpose_angle0_vel2[primIndex,1]
-            if endpose_angle0_vel2[primIndex,2] == 15:
-                endpose[2] = 9
-            if endpose_angle0_vel2[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle0_vel2[primIndex,2] == 1:
-                endpose[2] = 7
-            endpose[3] = endpose_angle0_vel2[primIndex,3]
-        if angleIndex == 9:
-            endpose[0] = endpose_angle22p5_vel2[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel2[primIndex,1] * -1
-            if endpose_angle22p5_vel2[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel2[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle22p5_vel2[primIndex,2] == 2:
-                endpose[2] = 10
-            endpose[3] = endpose_angle22p5_vel2[primIndex,3]
-        if angleIndex == 10:
-            endpose[0] = endpose_angle45_vel2[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel2[primIndex,1] * -1
-            if endpose_angle45_vel2[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle45_vel2[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle45_vel2[primIndex,2] == 3:
-                endpose[2] = 11
-            endpose[3] = endpose_angle45_vel2[primIndex,3]
-        if angleIndex == 11:
-            endpose[0] = endpose_angle67p5_vel2[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel2[primIndex,1] * -1
-            if endpose_angle67p5_vel2[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle67p5_vel2[primIndex,2] == 3:
-                endpose[2] = 11
-            if endpose_angle67p5_vel2[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel2[primIndex,3] 
-        if angleIndex == 12:
-            endpose[0] = endpose_angle90_vel2[primIndex,0]
-            endpose[1] = endpose_angle90_vel2[primIndex,1] * -1
-            if endpose_angle90_vel2[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle90_vel2[primIndex,2] == 4:
-                endpose[2] = 12
-            if endpose_angle90_vel2[primIndex,2] == 5:
-                endpose[2] = 11
-            endpose[3] = endpose_angle90_vel2[primIndex,3]
-        if angleIndex == 13:
-            endpose[0] = endpose_angle67p5_vel2[primIndex,0] 
-            endpose[1] = endpose_angle67p5_vel2[primIndex,1] * -1
-            if endpose_angle67p5_vel2[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle67p5_vel2[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle67p5_vel2[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel2[primIndex,3] 
-        if angleIndex == 14:
-            endpose[0] = endpose_angle45_vel2[primIndex,0] 
-            endpose[1] = endpose_angle45_vel2[primIndex,1] * -1
-            if endpose_angle45_vel2[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle45_vel2[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle45_vel2[primIndex,2] == 3:
-                endpose[2] = 13
-            endpose[3] = endpose_angle45_vel2[primIndex,3]
-        if angleIndex == 15:
-            endpose[0] = endpose_angle22p5_vel2[primIndex,0] 
-            endpose[1] = endpose_angle22p5_vel2[primIndex,1] * -1
-            if endpose_angle22p5_vel2[primIndex,2] == 0:
-                endpose[2] = 0
-            if endpose_angle22p5_vel2[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle22p5_vel2[primIndex,2] == 2:
-                endpose[2] = 14
-            endpose[3] = endpose_angle22p5_vel2[primIndex,3]
+            angle = currentangle - 67.5*pi/180
+        elif (currentangle_36000int-2250) % 9000 == 0:
+            #print("using angle22p5")
+            endpose = endpose_angle22p5_vel2[primIndex,:]
+            angle = currentangle - 22.5*pi/180
 
-        # generate intermediate x,y positions w.r.t 0,0 (in meters)
-        numSamples = 10
-        intermPoses_m = np.zeros((numSamples,2))
-        endPose_m = [endpose[0]*resolution, endpose[1]*resolution]
-        # turn in place or move straight forward
-        if (endpose[0]==0 and endpose[1]==0) or endpose[2]==angleIndex:
-            for i in range(0,numSamples):
-                intermPoses_m[i,:] = [endPose_m[0]*i/(numSamples-1), endPose_m[1]*i/(numSamples-1)]
-        else:
-            R = [[math.cos(angleIndex*2*math.pi/numAngles), math.sin(endpose[2]*2*math.pi/numAngles) - math.sin(angleIndex*2*math.pi/numAngles)], \
-                 [math.sin(angleIndex*2*math.pi/numAngles), -math.cos(endpose[2]*2*math.pi/numAngles) - math.cos(angleIndex*2*math.pi/numAngles)]]
-            S = np.matmul(np.linalg.pinv(R), [[endPose_m[0]],[endPose_m[1]]])
-            l = S[0]
-            tvoverrv = S[1]
-            rv = endpose[2]*2*math.pi/numAngles + 1/tvoverrv
-            tv = tvoverrv*rv
-
-            for i in range(0,numSamples):
-                dt = i/numSamples
-                theta = angleIndex*2*math.pi/numAngles
-                if dt*tv < 1:
-                    intermPoses_m[i,:] = [dt*tv*math.cos(theta), \
-                                          dt*tv*math.sin(theta)]
-                else:
-                    dtheta = rv*(dt - 1/tv) + theta
-                    intermPoses_m[i,:] = [l*math.cos(theta) + tvoverrv*(math.sin(dtheta)-math.sin(theta)), \
-                                          l*math.sin(theta) - tvoverrv*(math.cos(dtheta)-math.cos(theta))]
-            
-            errorxy = [endPose_m[0] - intermPoses_m[numSamples-1,0], \
-                       endPose_m[1] - intermPoses_m[numSamples-1,1]]
-            interp = np.zeros(10)
-            for i in range(0,numSamples):
-                interp[i] = i/(numSamples-1)
-            intermPoses_m[:,0] = intermPoses_m[:,0] + errorxy[0]*interp
-            intermPoses_m[:,1] = intermPoses_m[:,1] + errorxy[1]*interp
-
-        # calculate primitive execution time (assuming straight line
-        r = math.sqrt(endPose_m[0]**2 + endPose_m[1]**2)
-        primExecTime = 2*r/(vel2 + endpose[3]*0.2)
-
-        primFile = open(filename, 'a')
-        primFile.write("startangle_i: %d\n" % (angleIndex))
-        primFile.write("startvel_i: 2\n")
-        primFile.write("endpose_i: %d %d %d %d\n" % (endpose[0],endpose[1],endpose[2],endpose[3]))
-        primFile.write("exectime: %.4f\n" % (primExecTime))
-        primFile.write("intermediateposes: %d\n" % (numSamples))
-        for i in range(0,numSamples):
-            primFile.write("%.4f %.4f\n" % (intermPoses_m[i,0], intermPoses_m[i,1]))
-
-
+        generateIntermediatePoses(angleIndex, currentangle, 2, angle, endpose)
+        
+    # vel 3
     for primIndex in range(0,numPrimsPerVel3):
-        if angleIndex == 0: # 0
+        endpose = np.zeros(4)
+        currentangle = angleIndex*2*pi/numAngles
+        currentangle_36000int = round(angleIndex*36000/numAngles)
+
+        if currentangle_36000int % 9000 == 0:
+            #print("using angle0")
             endpose = endpose_angle0_vel3[primIndex,:]
-        if angleIndex == 1: # 22.5
-            endpose = endpose_angle22p5_vel3[primIndex,:]
-        if angleIndex == 2: # 45
+            angle = currentangle
+        elif currentangle_36000int % 4500 == 0:
+            #print("using angle45")
             endpose = endpose_angle45_vel3[primIndex,:]
-        if angleIndex == 3: # 67.5
-            endpose = endpose_angle67p5_vel3[primIndex,:]
-        if angleIndex == 4: # 90
-            endpose = endpose_angle90_vel3[primIndex,:]
-        if angleIndex == 5: # 112.5
-            endpose[0] = endpose_angle67p5_vel3[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel3[primIndex,1]
-            if endpose_angle67p5_vel3[primIndex,2] == 2:
-                endpose[2] = 6
-            if endpose_angle67p5_vel3[primIndex,2] == 3:
-                endpose[2] = 5
-            if endpose_angle67p5_vel3[primIndex,2] == 4:
-                endpose[2] = 4
-            endpose[3] = endpose_angle67p5_vel3[primIndex,3] 
-        if angleIndex == 6: # 135
-            endpose[0] = endpose_angle45_vel3[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel3[primIndex,1]
-            if endpose_angle45_vel3[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle45_vel3[primIndex,2] == 2:
-                endpose[2] = 4
-            if endpose_angle45_vel3[primIndex,2] == 3:
-                endpose[2] = 5
-            endpose[3] = endpose_angle45_vel3[primIndex,3]
-        if angleIndex == 7: # 157.5
-            endpose[0] = endpose_angle22p5_vel3[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel3[primIndex,1]
-            if endpose_angle22p5_vel3[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel3[primIndex,2] == 1:
-                endpose[2] = 7
-            if endpose_angle22p5_vel3[primIndex,2] == 2:
-                endpose[2] = 6
+            angle = currentangle - 45*pi/180
+        elif (currentangle_36000int-6750) % 9000 == 0:
+            #print("using angle67p5")
+            endpose[0] = endpose_angle22p5_vel3[primIndex,1]
+            endpose[1] = endpose_angle22p5_vel3[primIndex,0]
+            endpose[2] = -endpose_angle22p5_vel3[primIndex,2]
             endpose[3] = endpose_angle22p5_vel3[primIndex,3]
-        if angleIndex == 8: # 180
-            endpose[0] = endpose_angle0_vel3[primIndex,0] * -1
-            endpose[1] = endpose_angle0_vel3[primIndex,1]
-            if endpose_angle0_vel3[primIndex,2] == 15:
-                endpose[2] = 9
-            if endpose_angle0_vel3[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle0_vel3[primIndex,2] == 1:
-                endpose[2] = 7
-            endpose[3] = endpose_angle0_vel3[primIndex,3]
-        if angleIndex == 9:
-            endpose[0] = endpose_angle22p5_vel3[primIndex,0] * -1
-            endpose[1] = endpose_angle22p5_vel3[primIndex,1] * -1
-            if endpose_angle22p5_vel3[primIndex,2] == 0:
-                endpose[2] = 8
-            if endpose_angle22p5_vel3[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle22p5_vel3[primIndex,2] == 2:
-                endpose[2] = 10
-            endpose[3] = endpose_angle22p5_vel3[primIndex,3]
-        if angleIndex == 10:
-            endpose[0] = endpose_angle45_vel3[primIndex,0] * -1
-            endpose[1] = endpose_angle45_vel3[primIndex,1] * -1
-            if endpose_angle45_vel3[primIndex,2] == 1:
-                endpose[2] = 9
-            if endpose_angle45_vel3[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle45_vel3[primIndex,2] == 3:
-                endpose[2] = 11
-            endpose[3] = endpose_angle45_vel3[primIndex,3]
-        if angleIndex == 11:
-            endpose[0] = endpose_angle67p5_vel3[primIndex,0] * -1
-            endpose[1] = endpose_angle67p5_vel3[primIndex,1] * -1
-            if endpose_angle67p5_vel3[primIndex,2] == 2:
-                endpose[2] = 10
-            if endpose_angle67p5_vel3[primIndex,2] == 3:
-                endpose[2] = 11
-            if endpose_angle67p5_vel3[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel3[primIndex,3] 
-        if angleIndex == 12:
-            endpose[0] = endpose_angle90_vel3[primIndex,0]
-            endpose[1] = endpose_angle90_vel3[primIndex,1] * -1
-            if endpose_angle90_vel3[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle90_vel3[primIndex,2] == 4:
-                endpose[2] = 12
-            if endpose_angle90_vel3[primIndex,2] == 5:
-                endpose[2] = 11
-            endpose[3] = endpose_angle90_vel3[primIndex,3]
-        if angleIndex == 13:
-            endpose[0] = endpose_angle67p5_vel3[primIndex,0] 
-            endpose[1] = endpose_angle67p5_vel3[primIndex,1] * -1
-            if endpose_angle67p5_vel3[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle67p5_vel3[primIndex,2] == 3:
-                endpose[2] = 13
-            if endpose_angle67p5_vel3[primIndex,2] == 4:
-                endpose[2] = 12
-            endpose[3] = endpose_angle67p5_vel3[primIndex,3] 
-        if angleIndex == 14:
-            endpose[0] = endpose_angle45_vel3[primIndex,0] 
-            endpose[1] = endpose_angle45_vel3[primIndex,1] * -1
-            if endpose_angle45_vel3[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle45_vel3[primIndex,2] == 2:
-                endpose[2] = 14
-            if endpose_angle45_vel3[primIndex,2] == 3:
-                endpose[2] = 13
-            endpose[3] = endpose_angle45_vel3[primIndex,3]
-        if angleIndex == 15:
-            endpose[0] = endpose_angle22p5_vel3[primIndex,0] 
-            endpose[1] = endpose_angle22p5_vel3[primIndex,1] * -1
-            if endpose_angle22p5_vel3[primIndex,2] == 0:
-                endpose[2] = 0
-            if endpose_angle22p5_vel3[primIndex,2] == 1:
-                endpose[2] = 15
-            if endpose_angle22p5_vel3[primIndex,2] == 2:
-                endpose[2] = 14
-            endpose[3] = endpose_angle22p5_vel3[primIndex,3]
+            angle = currentangle - 67.5*pi/180
+        elif (currentangle_36000int-2250) % 9000 == 0:
+            #print("using angle22p5")
+            endpose = endpose_angle22p5_vel3[primIndex,:]
+            angle = currentangle - 22.5*pi/180
 
-        # generate intermediate x,y positions w.r.t 0,0 (in meters)
-        numSamples = 10
-        intermPoses_m = np.zeros((numSamples,2))
-        endPose_m = [endpose[0]*resolution, endpose[1]*resolution]
-        # turn in place or move straight forward
-        if (endpose[0]==0 and endpose[1]==0) or endpose[2]==angleIndex:
-            for i in range(0,numSamples):
-                intermPoses_m[i,:] = [endPose_m[0]*i/(numSamples-1), endPose_m[1]*i/(numSamples-1)]
-        else:
-            R = [[math.cos(angleIndex*2*math.pi/numAngles), math.sin(endpose[2]*2*math.pi/numAngles) - math.sin(angleIndex*2*math.pi/numAngles)], \
-                 [math.sin(angleIndex*2*math.pi/numAngles), -math.cos(endpose[2]*2*math.pi/numAngles) - math.cos(angleIndex*2*math.pi/numAngles)]]
-            S = np.matmul(np.linalg.pinv(R), [[endPose_m[0]],[endPose_m[1]]])
-            l = S[0]
-            tvoverrv = S[1]
-            rv = endpose[2]*2*math.pi/numAngles + 1/tvoverrv
-            tv = tvoverrv*rv
+        generateIntermediatePoses(angleIndex, currentangle, 3, angle, endpose)
+        
+    # vel 4
+    for primIndex in range(0,numPrimsPerVel4):
+        endpose = np.zeros(4)
+        currentangle = angleIndex*2*pi/numAngles
+        currentangle_36000int = round(angleIndex*36000/numAngles)
 
-            for i in range(0,numSamples):
-                dt = i/numSamples
-                theta = angleIndex*2*math.pi/numAngles
-                if dt*tv < 1:
-                    intermPoses_m[i,:] = [dt*tv*math.cos(theta), \
-                                          dt*tv*math.sin(theta)]
-                else:
-                    dtheta = rv*(dt - 1/tv) + theta
-                    intermPoses_m[i,:] = [l*math.cos(theta) + tvoverrv*(math.sin(dtheta)-math.sin(theta)), \
-                                          l*math.sin(theta) - tvoverrv*(math.cos(dtheta)-math.cos(theta))]
-            
-            errorxy = [endPose_m[0] - intermPoses_m[numSamples-1,0], \
-                       endPose_m[1] - intermPoses_m[numSamples-1,1]]
-            interp = np.zeros(10)
-            for i in range(0,numSamples):
-                interp[i] = i/(numSamples-1)
-            intermPoses_m[:,0] = intermPoses_m[:,0] + errorxy[0]*interp
-            intermPoses_m[:,1] = intermPoses_m[:,1] + errorxy[1]*interp
+        if currentangle_36000int % 9000 == 0:
+            #print("using angle0")
+            endpose = endpose_angle0_vel4[primIndex,:]
+            angle = currentangle
+        elif currentangle_36000int % 4500 == 0:
+            #print("using angle45")
+            endpose = endpose_angle45_vel4[primIndex,:]
+            angle = currentangle - 45*pi/180
+        elif (currentangle_36000int-6750) % 9000 == 0:
+            #print("using angle67p5")
+            endpose[0] = endpose_angle22p5_vel4[primIndex,1]
+            endpose[1] = endpose_angle22p5_vel4[primIndex,0]
+            endpose[2] = -endpose_angle22p5_vel4[primIndex,2]
+            endpose[3] = endpose_angle22p5_vel4[primIndex,3]
+            angle = currentangle - 67.5*pi/180
+        elif (currentangle_36000int-2250) % 9000 == 0:
+            #print("using angle22p5")
+            endpose = endpose_angle22p5_vel4[primIndex,:]
+            angle = currentangle - 22.5*pi/180
 
-        # calculate primitive execution time (assuming straight line
-        r = math.sqrt(endPose_m[0]**2 + endPose_m[1]**2)
-        primExecTime = 2*r/(vel3 + endpose[3]*0.2)
+        generateIntermediatePoses(angleIndex, currentangle, 4, angle, endpose)
+        
+    # vel 5
+    for primIndex in range(0,numPrimsPerVel5):
+        endpose = np.zeros(4)
+        currentangle = angleIndex*2*pi/numAngles
+        currentangle_36000int = round(angleIndex*36000/numAngles)
 
-        primFile = open(filename, 'a')
-        primFile.write("startangle_i: %d\n" % (angleIndex))
-        primFile.write("startvel_i: 3\n")
-        primFile.write("endpose_i: %d %d %d %d\n" % (endpose[0],endpose[1],endpose[2],endpose[3]))
-        primFile.write("exectime: %.4f\n" % (primExecTime))
-        primFile.write("intermediateposes: %d\n" % (numSamples))
-        for i in range(0,numSamples):
-            primFile.write("%.4f %.4f\n" % (intermPoses_m[i,0], intermPoses_m[i,1]))
+        if currentangle_36000int % 9000 == 0:
+            #print("using angle0")
+            endpose = endpose_angle0_vel5[primIndex,:]
+            angle = currentangle
+        elif currentangle_36000int % 4500 == 0:
+            #print("using angle45")
+            endpose = endpose_angle45_vel5[primIndex,:]
+            angle = currentangle - 45*pi/180
+        elif (currentangle_36000int-6750) % 9000 == 0:
+            #print("using angle67p5")
+            endpose[0] = endpose_angle22p5_vel5[primIndex,1]
+            endpose[1] = endpose_angle22p5_vel5[primIndex,0]
+            endpose[2] = -endpose_angle22p5_vel5[primIndex,2]
+            endpose[3] = endpose_angle22p5_vel5[primIndex,3]
+            angle = currentangle - 67.5*pi/180
+        elif (currentangle_36000int-2250) % 9000 == 0:
+            #print("using angle22p5")
+            endpose = endpose_angle22p5_vel5[primIndex,:]
+            angle = currentangle - 22.5*pi/180
+
+        generateIntermediatePoses(angleIndex, currentangle, 5, angle, endpose)
+        
+
+plt.show()
+

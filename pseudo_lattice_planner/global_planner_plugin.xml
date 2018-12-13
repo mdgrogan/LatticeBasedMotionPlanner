@@ -1,0 +1,7 @@
+<library path="lib/libpseudo_lattice_planner">
+  <class name="pseudo_lattice_planner/PseudoLatticePlannerROS" type="pseudo_lattice_planner::PseudoLatticePlannerROS" base_class_type="nav_core::BaseGlobalPlanner">
+    <description>
+      A implementation of a time bounded planner
+    </description>
+  </class>
+</library>

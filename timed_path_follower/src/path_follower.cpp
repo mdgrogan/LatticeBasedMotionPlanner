@@ -86,7 +86,7 @@ namespace path_executer
       private_nh.param("max_vel_phi", max_vel_phi_, 1.6);
       private_nh.param("k_rho", k_rho_, 2.5);
       private_nh.param("k_alpha", k_alpha_, 4.2);
-      private_nh.param("k_beta", k_beta_, 1.8);
+      private_nh.param("k_beta", k_beta_, -1.8);
 
       initialized_ = true;
     }
@@ -121,7 +121,7 @@ namespace path_executer
     }
 
     //make sure requested time is represented by the global plan
-    if(time.toSec() > global_plan_waypoints_.back().header.stamp.toSec() + 0.25 ||
+    if(time.toSec() > global_plan_waypoints_.back().header.stamp.toSec()  ||
        time < global_plan_waypoints_.front().header.stamp)
     {
       ROS_ERROR("requested waypoint is not within time range of path");
@@ -416,6 +416,8 @@ namespace path_executer
       double delta_y = diff.getOrigin().getY();
       double delta_phi = tf::getYaw(diff.getRotation());
 
+      ROS_INFO("dx dy dtheta dt = %.5f %.5f %.5f %.5f", delta_x, delta_y, delta_phi, time_diff);
+
       //recover the velocity between both poses from the equation of motion,
       //depending whether the motion between the poses is an arc, a straight line
       //or a turn in place. Assume constant velocity motion between both poses
@@ -427,7 +429,7 @@ namespace path_executer
           //path increment is an arc.
           double rad = (pow(delta_x, 2) + pow(delta_y, 2)) / (2 * delta_y);
           double alpha = atan2(delta_x, rad - delta_y);
-
+          ROS_INFO("radius alpha = %.5f %.5f", rad, alpha);
           if(rad < 0)
             alpha = alpha - M_PI;
 
@@ -456,7 +458,7 @@ namespace path_executer
 
         //check if the path is consistent with differential drive constraints
         //not sure why this happens. If it does, treat like an arc
-        if(fabs(delta_y) > ROUNDED_ZERO)
+        if(fabs(delta_y) > 0.0001)
         {
         ROS_INFO("correcting bad delta_y = %f", delta_y);
         //there is an angle difference between both poses
@@ -530,12 +532,12 @@ namespace path_executer
         return false;
     }
     goal_ = global_plan.back();
-    //for (int i=0; i<global_plan_velocities_.size(); i++) {
-    //    ROS_INFO("global_plan_velocities_[%d].x = %f",
-    //            i, global_plan_velocities_[i].linear.x);
-    //    ROS_INFO("global_plan_velocities_[%d].angular = %f",
-    //            i, global_plan_velocities_[i].angular.z);
-    //}
+    for (int i=0; i<global_plan_velocities_.size(); i++) {
+        ROS_INFO("global_plan_velocities_[%d].x = %f",
+                i, global_plan_velocities_[i].linear.x);
+        ROS_INFO("global_plan_velocities_[%d].angular = %f",
+                i, global_plan_velocities_[i].angular.z);
+    }
 
     return true;
   }

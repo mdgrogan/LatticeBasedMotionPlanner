@@ -18,18 +18,18 @@ oscillation_timeout: 0.0
 oscillation_distance: 0.0
 
 #use path follower as the local planner
-base_local_planner: path_executer/PathFollower
+base_local_planner: pose_follower/PoseFollower
 
 #path follower params
 PathFollower:
     allow_backwards: true #to allow backwards motion when trying to follow a trajectory. default: false
     xy_goal_tolerance: 0.05 #euclidian goal distance threshold in m. default: 0.1
     yaw_goal_tolerance: 0.1 #rotational goal distance threshold in rad. default: 0.2
-    max_vel_x: 1.0
+    max_vel_x: 0.65
     max_vel_phi: 1.57
     # for stability, k_rho>0, k_beta<0, k_alpha-k_rho>0
-    k_rho: 5.0 #distance gain 2.5
-    k_alpha: 6.0 #angle to face next waypoint 4.2
-    k_beta: 4.0 #angle diff to next waypoint 1.8
+    k_rho: 3.2 #distance gain 2.5
+    k_alpha: 8.0 #angle to face next waypoint 4.2
+    k_beta: -1.8 #angle diff to next waypoint 1.8
 
 #controller gains and velocity bounds for the path follower can be adjusted using dynamic reconfigure (move_base/PathFollower prefix)

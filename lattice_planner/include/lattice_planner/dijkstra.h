@@ -44,6 +44,10 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <string>
+#include <sstream>
+#include <fstream>
+#include <iostream>
 
 #include <ros/ros.h>
 #include <costmap_2d/costmap_2d.h>
@@ -56,11 +60,31 @@
       !pending_[n] && \
       getCost(costs, n)<lethal_cost_ && \
       currentEnd_<PRIORITYBUFSIZE) { \
-        currentBuffer_[currentEnd_++]=n; \
-        pending_[n]=true; }\
+        currentBuffer_[currentEnd_]=n; \
+        currentEnd_++; \
+        pending_[n]=true; \
+  }\
 }
-#define push_next(n) { if (n>=0 && n<ns_ && !pending_[n] && getCost(costs, n)<lethal_cost_ &&    nextEnd_<PRIORITYBUFSIZE){    nextBuffer_[   nextEnd_++]=n; pending_[n]=true; }}
-#define push_over(n) { if (n>=0 && n<ns_ && !pending_[n] && getCost(costs, n)<lethal_cost_ &&    overEnd_<PRIORITYBUFSIZE){    overBuffer_[   overEnd_++]=n; pending_[n]=true; }}
+#define push_next(n) \
+{ if (n>=0 && n<ns_ && \
+      !pending_[n] && \
+      getCost(costs, n)<lethal_cost_ && \
+      nextEnd_<PRIORITYBUFSIZE) { \
+        nextBuffer_[nextEnd_]=n; \
+        nextEnd_++; \
+        pending_[n]=true; \
+  }\
+}
+#define push_over(n) \
+{ if (n>=0 && n<ns_ && \
+      !pending_[n] && \
+      getCost(costs, n)<lethal_cost_ && \
+      overEnd_<PRIORITYBUFSIZE){ \
+        overBuffer_[overEnd_]=n; \
+        overEnd_++; \
+        pending_[n]=true; \
+  } \
+}
 // potential defs
 #define POT_HIGH 1.0e10        // unassigned cell potential
 
@@ -82,10 +106,6 @@ class DijkstraExpansion
 {
 public:
   DijkstraExpansion(int nx, int ny);
-
-  bool expandToGoal(unsigned char* costs, unsigned int start_x, unsigned int start_y,
-                    unsigned int goal_x, unsigned int goal_y, int max_cycles,
-                    float* potential);
 
   bool expand(unsigned char* costs, unsigned int start_x, unsigned int start_y,
               int max_cycles, float* potential);
@@ -134,10 +154,7 @@ private:
 
   float getCost(unsigned char* costs, int n) {
     float c = costs[n];
-    if (c < lethal_cost_ - 1 || (allow_unknown_ && c==255)) {
-      c = c * factor_ + neutral_cost_;
-      if (c >= lethal_cost_)
-        c = lethal_cost_ - 1;
+    if (c < lethal_cost_ - 1) {
       return c;
     }
     return lethal_cost_;

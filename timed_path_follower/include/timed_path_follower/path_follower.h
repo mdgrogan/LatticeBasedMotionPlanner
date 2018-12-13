@@ -170,7 +170,6 @@ private:
   costmap_2d::Costmap2DROS* costmap_ros_; ///< cost map with navigation constraints
   ros::ServiceClient replan_client_; ///< service client to make a replanning request to the global planner
   tf::TransformListener* tfl_; ///< tf transform listener
-  //dynamic_reconfigure::Server<path_executer::PathExecuterConfig> *dsrv_; ///< dynamic reconfigure server
   ros::Publisher current_waypoint_pub_; ///< ros publisher to visualize the currently scheduled waypoint
 
 };

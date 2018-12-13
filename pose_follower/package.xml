@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<package>
+  <name>pose_follower</name>
+  <version>0.0.0</version>
+  <description>
+      Follows the timed plan provided by global planner as closely as possible
+  </description>
+  <maintainer email="grogan2122@gmail.com">Matthew Grogan</maintainer>
+  <license>BSD</license>
+
+  <author>Matthew Grogan</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>costmap_2d</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>nav_core</build_depend>
+  <build_depend>pluginlib</build_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>tf</build_depend>
+  <run_depend>costmap_2d</run_depend>
+  <run_depend>geometry_msgs</run_depend>
+  <run_depend>nav_core</run_depend>
+  <run_depend>pluginlib</run_depend>
+  <run_depend>roscpp</run_depend>
+  <run_depend>tf</run_depend>
+
+  <export>
+    <nav_core plugin="${prefix}/local_planner_plugin.xml" />
+  </export>
+
+</package>

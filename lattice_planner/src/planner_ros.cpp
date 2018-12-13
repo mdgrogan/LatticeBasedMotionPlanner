@@ -130,6 +130,9 @@ bool LatticePlannerROS::makePlan(const geometry_msgs::PoseStamped &start,
     goal_pose_ = goal_fixed_frame;
 
 
+    //bool planning_ok = planner_->getPathFixedPolicy(start_fixed_frame,
+    //                                     goal_fixed_frame,
+    //                                     plan);
     bool planning_ok = planner_->getPath(start_fixed_frame,
                                          goal_fixed_frame,
                                          plan);

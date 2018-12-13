@@ -1,0 +1,7 @@
+<library path="lib/libpose_follower">
+    <class name="pose_follower/PoseFollower" type="pose_follower::PoseFollower" base_class_type="nav_core::BaseLocalPlanner">
+  <description>
+  Simple path executer to execute the dynamically feasible path passed by the lattice global planner
+  </description>
+  </class>
+</library>

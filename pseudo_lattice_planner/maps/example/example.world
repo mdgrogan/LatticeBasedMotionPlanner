@@ -1,0 +1,20 @@
+include "../hokuyo.inc"
+include "../crobot.inc"
+include "../floorplan.inc"
+
+window( 
+  size [ 850 700 1] 	
+  rotate [ 0.000 0.000 ]
+  center [15.65 10.96]	
+  scale 10 			
+  show_data 0 
+)
+
+# load an environment bitmap
+floorplan (
+  size [15.65 10.96 1]	
+  pose [7.825 5.48 0 0]
+  bitmap "example.pgm"
+)
+
+include "robots.inc"

@@ -2,9 +2,7 @@
 
 namespace lattice_planner {
 
-TimingInfo::TimingInfo(double time_resolution) {
-    time_resolution_ = time_resolution;
-
+TimingInfo::TimingInfo() {
     start_time_ = clock();
     plan_time_ = 0.0;
     prev_plan_time_ = 0.0;
@@ -19,14 +17,14 @@ TimingInfo::TimingInfo(double time_resolution) {
     prev_exec_time_ = 0.0;
 }
 
-double TimingInfo::update(int plan_len) {
+double TimingInfo::update(double exec_time) {
     plan_time_ = (double)(clock() - start_time_)/((double)CLOCKS_PER_SEC);
     plan_time_wall_ = getWallTime() - start_time_wall_;
     improve_time_ = (double)(clock() - start_time_)/((double)CLOCKS_PER_SEC) - prev_plan_time_;
     improve_time_wall_ = getWallTime() - start_time_wall_ - prev_plan_time_wall_;
     prev_plan_time_ = plan_time_;
     prev_plan_time_wall_ = plan_time_wall_;
-    exec_time_ = plan_len * time_resolution_;
+    exec_time_ = exec_time;
     
     double ret = improve_time_ + exec_time_ - prev_exec_time_;
     prev_exec_time_ = exec_time_;

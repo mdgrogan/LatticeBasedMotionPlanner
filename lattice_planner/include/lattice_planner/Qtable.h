@@ -1,9 +1,11 @@
 #ifndef QTABLE_H
 #define QTABLE_H
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <fstream>
+#include <sstream>
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
@@ -12,32 +14,41 @@
 
 namespace QStuff {
 
+// this all requires some consistency on feature indices
+class Feature {
+    public:
+        int discretize(int input);
+
+        double Flr_; // feature learning rate
+        std::vector<double> means;
+};
+
 class QTable {
     public:
-        QTable(double alpha, double gamma);
+        QTable(int greediness, double lr, double discount);
+        ~QTable();
         void update(QState q, QState qnew, int action, double R);
         void updateTerminal(QState q, int action, double R);
         double getTableVal(QState q, int a);
         int getAction(QState q);
+        double indexToAction(int a);
+        QState discretize(std::vector<double> input);
         void saveTable(std::string filename);
         void loadTable(std::string filename);
+        void initFeature(int featureNum, double lr, std::vector<double> means);
 
     private:
         void setTableVal(QState q, int a, double val);
         double minOverA(QState q);
         int argminOverA(QState q);
 
-        double alpha_;
-        double gamma_;
-        // 4 features, 1 action
-        const int eps_col = 0;
-        const int t_cpu_col = 1;
-        //const int t_exec_col = 2;
-        const int open_size_col = 3;
-        const int action_col = 4;
-        //double table[EPS_SIZE][FEATURE_SIZE][FEATURE_SIZE][FEATURE_SIZE][ACTION_SIZE] = {0};
-        double table[EPS_SIZE][FEATURE_SIZE][FEATURE_SIZE][ACTION_SIZE] = {0};
-        int table_update_count[EPS_SIZE][FEATURE_SIZE][FEATURE_SIZE][ACTION_SIZE] = {0};
+        double Qlr_; // Q table learning rate
+        double discount_; // discount
+        int greediness_; // how willing to explore = 1 - g/100
+        std::vector<Feature> features_;
+        double table_[F0][F1][F2][F3][ACTION_SIZE] = {0};
+        //std::vector<std::vector<double>> table_;
+        int table_update_count_[F0][F1][F2][F3][ACTION_SIZE] = {0};
 };
 
 } /* namespace QStuff */
