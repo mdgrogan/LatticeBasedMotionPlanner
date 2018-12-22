@@ -5,13 +5,14 @@
 
 // having a dynamic number of features is tripping me up
 // some I'm harcoding it for now
-#define NUM_FEATURES 4
-#define F0 6
-#define F1 6
-#define F2 6
-#define F3 5
-#define ACTION_SIZE 6
-#define ACTION_E 5
+#define NUM_FEATURES 5
+#define F0 4
+#define F1 4
+#define F2 4
+#define F3 4
+#define F4 4
+#define ACTION_SIZE 2
+#define ACTION_E 1
 
 
 namespace QStuff {

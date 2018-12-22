@@ -46,9 +46,9 @@ class QTable {
         double discount_; // discount
         int greediness_; // how willing to explore = 1 - g/100
         std::vector<Feature> features_;
-        double table_[F0][F1][F2][F3][ACTION_SIZE] = {0};
+        double table_[F0][F1][F2][F3][F4][ACTION_SIZE] = {0};
         //std::vector<std::vector<double>> table_;
-        int table_update_count_[F0][F1][F2][F3][ACTION_SIZE] = {0};
+        int table_update_count_[F0][F1][F2][F3][F4][ACTION_SIZE] = {0};
 };
 
 } /* namespace QStuff */

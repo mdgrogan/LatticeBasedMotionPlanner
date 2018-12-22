@@ -529,14 +529,43 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
     double exec_time = publishPlan(goal_state_);
     timing_info.update(exec_time);
     double reward = 0.0;
+    double rewardSum = reward;
     double eps_bound = getBoundedEps(cur_eps);
-    printStuff(timing_info, cur_eps, eps_bound, reward);
+    /////////////////////////////////////////////////////
+    int prev_open_size = open_list_->cur_size;
+    int prev_incons_size = incons_list_->cur_size;
+    int prev_expanded_size = (int)all_expanded_.size();
+    double prev_eps_bound = eps_bound;
+    double prev_g = goal_state_->g;
+    FILE *fp;
+    fp = fopen("/home/grogan/planner_output.txt", "a");
+    fprintf(fp, "%d, %.3f, %.3f, %.3f, %.3f, %.1f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d, %d, %d, %d, %d\n",
+            call_number_,
+            timing_info.plan_time_,
+            timing_info.exec_time_,
+            reward,
+            rewardSum,
+            cur_eps,
+            eps_bound,
+            eps_bound - prev_eps_bound,
+            goal_state_->g,
+            goal_state_->g - prev_g,
+            start_state_->h,
+            open_list_->cur_size,
+            open_list_->cur_size - prev_open_size,
+            incons_list_->cur_size,
+            incons_list_->cur_size - prev_incons_size,
+            all_expanded_.size(),
+            (int)(all_expanded_.size()) - prev_expanded_size);
+    fclose(fp);
+    /////////////////////////////////////////////////////
 
     QStuff::QState q = QT_->discretize(
             std::vector<double> {timing_info.plan_time_,
-                                 exec_time, 
-                                 all_expanded_.size(), 
-                                 eps_bound});
+            exec_time, 
+            0, 
+            0,
+            0});
     int q_action = QT_->getAction(q);
     ROS_INFO("Q state = [%d %d %d %d]", 
             q.features[0], q.features[1], q.features[2], q.features[3]);
@@ -572,13 +601,47 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
             //expanded_paths_.poses.clear();
         }
         reward = timing_info.update(exec_time);
+        rewardSum += reward;
         eps_bound = getBoundedEps(cur_eps);
 
+        /////////////////////////////////////////////////////
+        fp = fopen("/home/grogan/planner_output.txt", "a");
+        fprintf(fp, "%d, %.3f, %.3f, %.3f, %.3f, %.1f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d, %d, %d, %d, %d\n",
+                call_number_,
+                timing_info.plan_time_,
+                timing_info.exec_time_,
+                reward,
+                rewardSum,
+                cur_eps,
+                eps_bound,
+                eps_bound - prev_eps_bound,
+                goal_state_->g,
+                goal_state_->g - prev_g,
+                start_state_->h,
+                open_list_->cur_size,
+                open_list_->cur_size - prev_open_size,
+                incons_list_->cur_size,
+                incons_list_->cur_size - prev_incons_size,
+                all_expanded_.size(),
+                (int)(all_expanded_.size()) - prev_expanded_size);
+        fclose(fp);
+
+        /////////////////////////////////////////////////////
+
+        double d_open = open_list_->cur_size - prev_open_size;
+        double d_incons = incons_list_->cur_size - prev_incons_size;
+        double d_eps = eps_bound-prev_eps_bound;
         QStuff::QState q_new = QT_->discretize(
                 std::vector<double> {timing_info.plan_time_,
                                      exec_time, 
-                                     all_expanded_.size(), 
-                                     eps_bound});
+                                     d_open, 
+                                     d_incons,
+                                     d_eps});
+
+        prev_expanded_size = (int)all_expanded_.size();
+        prev_eps_bound = eps_bound;
+        prev_g = goal_state_->g;
+
         QT_->update(q, q_new, q_action, reward);
         ROS_INFO("Updated table value: %.3f", QT_->getTableVal(q, q_action));
         QT_->saveTable("/home/grogan/Qtable_vals.txt");
@@ -593,17 +656,16 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
             q_action = QT_->getAction(q);
         }
 
-        printStuff(timing_info, cur_eps, eps_bound, reward);
         ROS_INFO("-------------------");
         ROS_INFO("Q state = [%d %d %d %d]", 
-                q.features[0], q.features[1], q.features[2], q.features[3]);
+                q.features[0], q.features[1], q.features[2], q.features[3], q.features[4]);
         ROS_INFO("Action %d", q_action);
     }
-    QT_->updateTerminal(q, q_action, reward);
+    QT_->updateTerminal(q, q_action, rewardSum);
     QT_->saveTable("/home/grogan/Qtable_vals.txt");
 
     // Write the start/goal sequence plus times for posterity
-    FILE *fp;
+    //FILE *fp;
     fp = fopen("/home/grogan/start_goal_sequence.txt", "a");
     fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
             next_start_.pose.position.x, next_start_.pose.position.y, 
@@ -642,8 +704,205 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
     }
 }
 
-#define FIXED 10.0
+/**/
+#define FIXED 0.2
 
+bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
+                             geometry_msgs::PoseStamped goal,
+                     std::vector<geometry_msgs::PoseStamped> &path) {
+    ROS_INFO("LatticePlanner::getPath");
+    //call_number_++;
+    // clear containers
+    reset();
+    // new containers
+    open_list_ = new Heap;
+    incons_list_ = new List;
+
+    TimingInfo timing_info;
+    // set heuristic inside clock
+
+    if (next_start_.pose.position.x == goal.pose.position.x &&
+        next_start_.pose.position.y == goal.pose.position.y) {
+        ROS_INFO("ignore");
+        return true;
+    }
+
+    goal_state_ = setGoalState(goal);
+
+    if (!env_->setPlanningParams(goal_state_->cell_i)) {
+        ROS_ERROR("heuristic calculation failed");
+        return false;
+    }
+    
+    //start_state_ = setStartState(start);
+    start_state_ = setStartState(next_start_);
+
+    if (start_state_ == NULL || goal_state_ == NULL) {
+        ROS_INFO("Bad start or goal state");
+        return false;
+    }
+
+    // Set start state cost
+    start_state_->g = 0.0;
+
+    // insert start state into open list
+    double key = start_state_->g + eps_*start_state_->h;
+    open_list_->insertElement(start_state_, key);
+
+    call_number_++;
+
+    State *current_best = NULL;
+    bool found_goal = false;
+    double cur_eps = eps_;
+
+    // main loop
+    double time_limit = (double)clock()/CLOCKS_PER_SEC+planning_timeout_;
+    search_iteration_ = 1;
+    int ret = improvePath(cur_eps, current_best, 
+            found_goal, time_limit);
+    expanded_paths_.poses.clear();
+
+    if (ret == -1) {
+        ROS_WARN("bad");
+        return false;
+    }
+    if (ret == 1 || !found_goal) {
+        ROS_WARN("timed out on first search");
+        return false;
+    }
+
+    double exec_time = publishPlan(goal_state_);
+    timing_info.update(exec_time);
+    double reward = 0.0;
+    double rewardSum = reward;
+    double eps_bound = getBoundedEps(cur_eps);
+
+    //printStuff(timing_info, cur_eps, eps_bound, reward);
+
+    /////////////////////////////////////////////////////
+    int prev_open_size = open_list_->cur_size;
+    int prev_incons_size = incons_list_->cur_size;
+    int prev_expanded_size = (int)all_expanded_.size();
+    double prev_eps_bound = eps_bound;
+    double prev_g = goal_state_->g;
+    FILE *fp;
+    fp = fopen("/home/grogan/planner_output.txt", "a");
+    fprintf(fp, "%d, %.3f, %.3f, %.3f, %.3f, %.1f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d, %d, %d, %d, %d\n",
+            call_number_,
+            timing_info.plan_time_,
+            timing_info.exec_time_,
+            reward,
+            rewardSum,
+            cur_eps,
+            eps_bound,
+            eps_bound - prev_eps_bound,
+            goal_state_->g,
+            goal_state_->g - prev_g,
+            start_state_->h,
+            open_list_->cur_size,
+            open_list_->cur_size - prev_open_size,
+            incons_list_->cur_size,
+            incons_list_->cur_size - prev_incons_size,
+            all_expanded_.size(),
+            (int)(all_expanded_.size()) - prev_expanded_size);
+    fclose(fp);
+    /////////////////////////////////////////////////////
+
+    double new_plan_time = (double)clock()/CLOCKS_PER_SEC + FIXED;
+    while ((double)clock()/CLOCKS_PER_SEC < time_limit &&
+           (cur_eps > 1+ROUNDED_ZERO || ret == 1)) {
+        double new_plan_time = (double)clock()/CLOCKS_PER_SEC + FIXED;
+        while ((double)clock()/CLOCKS_PER_SEC < new_plan_time && 
+               (double)clock()/CLOCKS_PER_SEC < time_limit &&
+               (cur_eps > 1+ROUNDED_ZERO || ret == 1)) {
+            if (ret == 0) {
+                search_iteration_++;
+                cur_eps -= 0.2;
+                buildOpenList(cur_eps);
+            }
+            ret = improvePath(cur_eps, current_best, 
+                              found_goal, new_plan_time);
+            expanded_paths_.poses.clear();
+            // this can be done better
+            double tmp;
+            retracePath(goal_state_, tmp);
+            if (tmp < exec_time) {
+                exec_time = publishPlan(goal_state_);
+            }
+        }
+        reward = timing_info.update(exec_time);
+        rewardSum += reward;
+        eps_bound = getBoundedEps(cur_eps);
+
+        /////////////////////////////////////////////////////
+        fp = fopen("/home/grogan/planner_output.txt", "a");
+        fprintf(fp, "%d, %.3f, %.3f, %.3f, %.3f, %.1f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d, %d, %d, %d, %d\n",
+                call_number_,
+                timing_info.plan_time_,
+                timing_info.exec_time_,
+                reward,
+                rewardSum,
+                cur_eps,
+                eps_bound,
+                eps_bound - prev_eps_bound,
+                goal_state_->g,
+                goal_state_->g - prev_g,
+                start_state_->h,
+                open_list_->cur_size,
+                open_list_->cur_size - prev_open_size,
+                incons_list_->cur_size,
+                incons_list_->cur_size - prev_incons_size,
+                all_expanded_.size(),
+                (int)(all_expanded_.size()) - prev_expanded_size);
+        fclose(fp);
+        prev_expanded_size = (int)all_expanded_.size();
+        prev_eps_bound = eps_bound;
+        prev_g = goal_state_->g;
+        /////////////////////////////////////////////////////
+    }
+
+    // Write the start/goal sequence plus times for posterity
+    //FILE *fp;
+    fp = fopen("/home/grogan/start_goal_sequence.txt", "a");
+    fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+            next_start_.pose.position.x, next_start_.pose.position.y, 
+            tf::getYaw(next_start_.pose.orientation),
+            goal.pose.position.x, goal.pose.position.y, 
+            tf::getYaw(goal.pose.orientation),
+            timing_info.plan_time_, timing_info.exec_time_);
+    fclose(fp);
+
+    // done with planning by here
+    
+    //if (found_goal) {
+    //    current_plan_ = retracePath(goal_state_);
+    //} else if (current_best != NULL) {
+    //    current_plan_ = retracePath(current_best);
+    //}
+
+
+    ros::Duration offset = ros::Time::now() - current_plan_[0].header.stamp;
+    for (int i=0; i<current_plan_.size(); i++) {
+        //current_plan_[i].header.frame_id = costmap_->getGlobalFrameID();
+        current_plan_[i].header.stamp += offset;
+        //ROS_INFO("t = %.4f", poses[i].header.stamp.toSec());
+    }
+
+    //path = current_plan_;
+    std::vector<geometry_msgs::PoseStamped> p;
+    path = p;
+    next_start_ = goal;
+    return false;
+
+    if (!path.empty()) {
+        return true;
+    } else {
+        return false;
+    }
+}
+/**/
+/*
+#define FIXED 6.0
 bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
                              geometry_msgs::PoseStamped goal,
                      std::vector<geometry_msgs::PoseStamped> &path) {
@@ -710,6 +969,7 @@ bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
     double exec_time = publishPlan(goal_state_);
     timing_info.update(exec_time);
     double reward = 0.0;
+    double rewardSum = reward;
     double eps_bound = getBoundedEps(cur_eps);
     printStuff(timing_info, cur_eps, eps_bound, reward);
 
@@ -729,10 +989,11 @@ bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
         }
 
         reward = timing_info.update(exec_time);
+        rewardSum += reward;
         eps_bound = getBoundedEps(cur_eps);
 
 
-        printStuff(timing_info, cur_eps, eps_bound, reward);
+        printStuff(timing_info, cur_eps, eps_bound, rewardSum);
         ROS_INFO("-------------------");
     }
     //QT_->updateTerminal(q, qaction, reward);
@@ -776,6 +1037,7 @@ bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
         return false;
     }
 }
+*/
 
 /********************************************************************
  * Get lower bound on cost of a solution for suboptimality bound (ARA*)
@@ -1007,7 +1269,8 @@ double LatticePlanner::publishPlan(State *state) {
     }
 }
 
-void LatticePlanner::printStuff(TimingInfo ti, double cur_eps, double bounded_eps, double reward) {
+void LatticePlanner::printStuff(TimingInfo ti, double cur_eps, 
+        double bounded_eps, double reward) {
     //ROS_INFO("-------------------------");
     ROS_INFO("goal_state cost: %f", goal_state_->g);
     ROS_INFO("planning time: %f", ti.plan_time_);

@@ -19,13 +19,15 @@ QTable::QTable(int greediness, double lr, double discount) {
     // hardcoding this in. Everything is about halfway to having variable
     // features, just not sure how to handle the table
     // planning time
-    initFeature(0, 0.01, std::vector<double> {0.6, 1.2, 2.5, 5.0, 7.5, 15});
+    initFeature(0, 0, std::vector<double> {0.6, 1.8, 4.0, 6.0});
     // exec time
-    initFeature(1, 0.01, std::vector<double> {20, 32, 46, 60, 70, 85});
-    // expanded states
-    initFeature(2, 0.01, std::vector<double> {10000, 18000, 30000, 70000, 200000, 500000});
-    // epsilon bound
-    initFeature(3, 0, std::vector<double> {1.0, 1.15, 1.25, 1.5, 1.6});
+    initFeature(1, 0, std::vector<double> {12.0, 20.0, 30.0, 36.0});
+    // delta open size
+    initFeature(2, 0, std::vector<double> {20000, 50000, 120000, 200000});
+    // delta inconsistent size
+    initFeature(3, 0, std::vector<double> {-5000, 0, 15000, 25000});
+    // delta epsilon bound
+    initFeature(4, 0, std::vector<double> {0.0, -0.05, -0.15, -0.3});
     /*
     //time
     features_[0].means.push_back(0.1);
@@ -62,6 +64,7 @@ void QTable::initFeature(int featureNum, double lr, std::vector<double> means) {
     features_[featureNum].Flr_ = lr;
 }
 
+/*
 int QTable::getAction(QState q) {
     // eps greedy
     int x = rand()%100;
@@ -79,6 +82,29 @@ double QTable::indexToAction(int i) {
         return 0;
     }
     return (0.2*pow(10, i/3.5));
+}
+*/
+
+int QTable::getAction(QState q) {
+    // eps greedy
+    int x = rand()%100;
+    if (x>greediness_) { // 2 is exploratory val, should be variable
+        ROS_INFO("exploring");
+        return 0;
+        //return rand()%ACTION_SIZE;
+    } else {
+        return argminOverA(q);
+    }
+} 
+double QTable::indexToAction(int i) {
+    if (i < 0 || i > ACTION_SIZE-1) {
+        printf("QStateDiscretizer::indexToAction: bad index\n");
+        return 0;
+    }
+    if (i == 0)
+        return 0.2;
+    //if (i == 1)
+    //    return 4.2;
 }
     
 QState QTable::discretize(std::vector<double> input) {
@@ -104,16 +130,16 @@ QState QTable::discretize(std::vector<double> input) {
 // how to genericize?
 double QTable::getTableVal(QState q, int a) {
     //return table[q.eps_i][q.t_cpu_i][q.t_exec_i][q.open_size_i][a];
-    return table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][a];
+    return table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a];
 }
 
 void QTable::setTableVal(QState q, int a, double val) {
     //table[q.eps_i][q.t_cpu_i][q.t_exec_i][q.open_size_i][a] = val;
-    if (table_update_count_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][a]==0) {
+    if (table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a]==0) {
         ROS_INFO("\nNEW STATE ENCOUNTERED\n");
     }
-    table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][a] = val;
-    table_update_count_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][a]++;
+    table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a] = val;
+    //table_update_count_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a]++;
 }
 
 void QTable::update(QState q, QState qnew, int action, double R) {
@@ -123,10 +149,10 @@ void QTable::update(QState q, QState qnew, int action, double R) {
 }
 
 void QTable::updateTerminal(QState q, int a, double R) {
-    //double update= (1-Qlr_)*getTableVal(q, action) + 
+    //double update= (1-Qlr_)*getTableVal(q, a) + 
     //                   Qlr_*R;
-    //setTableVal(q, action, update);
-    table_update_count_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][a]++;
+    //setTableVal(q, a, update);
+    //table_update_count_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a]++;
 }
 
 double QTable::minOverA(QState q) {
@@ -169,15 +195,17 @@ void QTable::saveTable(std::string filename) {
         for (int j=0; j<F1; j++) {
             for (int k=0; k<F2; k++) {
                 for (int l=0; l<F3; l++) {
-                    for (int m=0; m<ACTION_SIZE; m++) {
-                        out1 << i << " " << j << " " << k << " " <<
-                            l << " " << m << " " <<
-                            table_[i][j][k][l][m] << std::endl;
-                        out2 << i << " " << j << " " << k << " " <<
-                            l << " " << m << " " <<
-                            table_update_count_[i][j][k][l][m] << std::endl;
-                        //out2 << i << "," << k << "," << l << "," << m << "," 
-                        //    << table_update_count[i][k][l][m] << std::endl;
+                    for (int m=0; m<F4; m++) {
+                        for(int n=0; n<ACTION_SIZE; n++) {
+                            out1 << i << " " << j << " " << k << " " <<
+                                l << " " << m << " " << n << " " <<
+                                table_[i][j][k][l][m][n] << std::endl;
+                            //out2 << i << " " << j << " " << k << " " <<
+                                //l << " " << m << " " <<
+                                //table_update_count_[i][j][k][l][m][n] << std::endl;
+                            //out2 << i << "," << k << "," << l << "," << m << "," 
+                            //    << table_update_count[i][k][l][m] << std::endl;
+                        }
                     }
                 }
             }
@@ -252,7 +280,7 @@ void QTable::loadTable(std::string filename) {
                 //if (fabs(vals[4]) < 1e-6)
                 //    vals[4] = 0.0;
 
-                table_[(int)vals[0]][(int)vals[1]][(int)vals[2]][(int)vals[3]][(int)vals[4]] = vals[5];
+                table_[(int)vals[0]][(int)vals[1]][(int)vals[2]][(int)vals[3]][(int)vals[4]][(int)vals[5]] = vals[6];
                 //if ((int)vals[4] == 5) {
                 //    table_[(int)vals[0]][(int)vals[1]][(int)vals[2]][(int)vals[3]][(int)vals[4]] = 0;
                 //}
@@ -261,6 +289,7 @@ void QTable::loadTable(std::string filename) {
     }
     in.close();
 
+    /*
     in.open("/home/grogan/Qtable_count.txt");
     if (!in) {
         return;
@@ -275,9 +304,10 @@ void QTable::loadTable(std::string filename) {
                 ss.ignore();
             }
         }
-        table_update_count_[vals[0]][vals[1]][vals[2]][vals[3]][vals[4]] = vals[5];
+        table_update_count_[vals[0]][vals[1]][vals[2]][vals[3]][vals[4]][vals[5]] = vals[6];
     }
     in.close();
+    */
 }
 
 } /* namespace QStuff */
