@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <launch>
-    <arg name="map"         default="env7"/>
+    <arg name="map"         default="env8"/>
     <arg name="map_file"    default="$(find lattice_planner)/maps/$(arg map)/$(arg map).yaml"/>
     <arg name="pgm_file"    default="$(find lattice_planner)/maps/$(arg map)/$(arg map).pgm"/>
     <arg name="world_file"  default="$(find lattice_planner)/maps/$(arg map)/$(arg map).world"/>

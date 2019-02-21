@@ -94,6 +94,7 @@ double Environment::getActionCost(Action action) {
     //costs += cost_factors_.time_cost * 
     //         action.exec_time/(hypot((float)action.dx, (float)action.dy)*resolution_);
     costs += cost_factors_.time_cost * action.exec_time; 
+    
 
     int max = std::max(action.dx, action.dy);
     int min = std::min(action.dx, action.dy);

@@ -16,7 +16,7 @@
 #include <lattice_planner/list.h>
 #include <lattice_planner/timing_info.h>
 #include <lattice_planner/Path.h>
-
+//#include <lattice_planner/sarsa.h>
 #include <lattice_planner/Qtable.h>
 
 #define SQRT2 1.414213562
@@ -79,6 +79,7 @@ class LatticePlanner {
         //Q-learning stuff
         //QStuff::QStateDiscretizer *QSD_;
         QStuff::QTable *QT_;
+        //TD::Sarsa *sarsa_;
 
        
         //containers

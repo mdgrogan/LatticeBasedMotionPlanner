@@ -13,7 +13,7 @@ window(
 floorplan (
   size [10.0 10.0  1]  
   pose [0 0 0 0]
-  bitmap "env7.pgm"
+  bitmap "env8.pgm"
 )
 
 include "robots.inc"

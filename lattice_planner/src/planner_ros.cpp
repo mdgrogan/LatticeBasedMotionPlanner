@@ -130,23 +130,17 @@ bool LatticePlannerROS::makePlan(const geometry_msgs::PoseStamped &start,
     goal_pose_ = goal_fixed_frame;
 
 
-    //bool planning_ok = planner_->getPathFixedPolicy(start_fixed_frame,
-    //                                     goal_fixed_frame,
-    //                                     plan);
-    bool planning_ok = planner_->getPath(start_fixed_frame,
+    bool planning_ok = planner_->getPathFixedPolicy(start_fixed_frame,
                                          goal_fixed_frame,
                                          plan);
+    //bool planning_ok = planner_->getPath(start_fixed_frame,
+    //                                     goal_fixed_frame,
+    //                                     plan);
 
     if (!planning_ok) {
         ROS_INFO("planning not ok");
         plan.clear();
     }
-
-    //ROS_INFO("plan start time = %f", plan.front().header.stamp.toSec());
-    //ROS_INFO("plan end time = %f", plan.back().header.stamp.toSec());
-    //for (int i=0; i<plan.size(); i++) {
-    //    ROS_INFO("plan[%d].header.stamp = %f", i, plan[i].header.stamp.toSec());
-    //}
 
     } catch (std::runtime_error re) {
         ROS_ERROR("%s", re);

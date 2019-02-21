@@ -1,4 +1,4 @@
-image: env7.pgm
+image: env9.pgm
 resolution: 0.025
 origin: [-5.000000, -5.000000, 0.0]
 occupied_thresh: 0.65

@@ -12,7 +12,7 @@
 namespace lattice_planner {
 
 #define ROUNDED_ZERO 1e-6
-std::string PRIMFILE("/home/grogan/catkin_ws/src/LatticeBasedMotionPlanner/prim_gen/unicycle_2p5cm.mprim");
+std::string PRIMFILE("/home/grogan/catkin_ws/src/LatticeBasedMotionPlanner/prim_gen/unicycle_2p5cm_plus.mprim");
 
 int Hasher::num_x_ = 0;
 int Hasher::num_y_ = 0;
@@ -499,6 +499,10 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
     // insert start state into open list
     double key = start_state_->g + eps_*start_state_->h;
     open_list_->insertElement(start_state_, key);
+    if (open_list_->cur_size == 0) {
+        ROS_WARN("hey");
+        std::getchar();
+    }
 
     call_number_++;
 
@@ -563,12 +567,14 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
     QStuff::QState q = QT_->discretize(
             std::vector<double> {timing_info.plan_time_,
             exec_time, 
+            eps_bound,
+            open_list_->cur_size,
             0, 
-            0,
+            incons_list_->cur_size,
             0});
     int q_action = QT_->getAction(q);
-    ROS_INFO("Q state = [%d %d %d %d]", 
-            q.features[0], q.features[1], q.features[2], q.features[3]);
+    ROS_INFO("Q state = [%d %d %d %d %d %d %d]", 
+            q.features[0], q.features[1], q.features[2], q.features[3], q.features[4], q.features[5], q.features[6]);
     ROS_INFO("Action %d", q_action);
 
     while (q_action != ACTION_SIZE-1 && 
@@ -633,18 +639,26 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
         double d_eps = eps_bound-prev_eps_bound;
         QStuff::QState q_new = QT_->discretize(
                 std::vector<double> {timing_info.plan_time_,
-                                     exec_time, 
-                                     d_open, 
-                                     d_incons,
-                                     d_eps});
+                exec_time, 
+                eps_bound,
+                open_list_->cur_size,
+                d_open, 
+                incons_list_->cur_size,
+                d_incons});
 
+        prev_open_size = open_list_->cur_size;
+        prev_incons_size = incons_list_->cur_size;
         prev_expanded_size = (int)all_expanded_.size();
         prev_eps_bound = eps_bound;
         prev_g = goal_state_->g;
 
+        double old = QT_->getTableVal(q, q_action);
         QT_->update(q, q_new, q_action, reward);
+        ROS_INFO("reward: %.3f", reward);
+        ROS_INFO("reward sum: %.3f", rewardSum);
+        ROS_INFO("Old table value: %.3f", old);
         ROS_INFO("Updated table value: %.3f", QT_->getTableVal(q, q_action));
-        QT_->saveTable("/home/grogan/Qtable_vals.txt");
+        //QT_->saveTable("/home/grogan/Qtable_vals.txt");
         q = q_new;
         if (fabs(cur_eps - eps_) < ROUNDED_ZERO && ret == 0) {
             //ROS_INFO("(1)");
@@ -657,8 +671,8 @@ bool LatticePlanner::getPath(geometry_msgs::PoseStamped start,
         }
 
         ROS_INFO("-------------------");
-        ROS_INFO("Q state = [%d %d %d %d]", 
-                q.features[0], q.features[1], q.features[2], q.features[3], q.features[4]);
+        ROS_INFO("Q state = [%d %d %d %d %d %d %d]", 
+            q.features[0], q.features[1], q.features[2], q.features[3], q.features[4], q.features[5], q.features[6]);
         ROS_INFO("Action %d", q_action);
     }
     QT_->updateTerminal(q, q_action, rewardSum);
@@ -826,6 +840,11 @@ bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
             // this can be done better
             double tmp;
             retracePath(goal_state_, tmp);
+            //if (tmp > exec_time+ROUNDED_ZERO) {
+            //    fp = fopen("/home/grogan/increase.txt", "a");
+            //    fprintf(fp, "%d, %.3f, %.3f, %.3f\n", call_number_, tmp, exec_time, tmp-exec_time);
+            //    fclose(fp);
+            //}
             if (tmp < exec_time) {
                 exec_time = publishPlan(goal_state_);
             }
@@ -855,6 +874,8 @@ bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
                 all_expanded_.size(),
                 (int)(all_expanded_.size()) - prev_expanded_size);
         fclose(fp);
+        prev_open_size = open_list_->cur_size;
+        prev_incons_size = incons_list_->cur_size;
         prev_expanded_size = (int)all_expanded_.size();
         prev_eps_bound = eps_bound;
         prev_g = goal_state_->g;
@@ -901,143 +922,6 @@ bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
     }
 }
 /**/
-/*
-#define FIXED 6.0
-bool LatticePlanner::getPathFixedPolicy(geometry_msgs::PoseStamped start,
-                             geometry_msgs::PoseStamped goal,
-                     std::vector<geometry_msgs::PoseStamped> &path) {
-    ROS_INFO("LatticePlanner::getPath");
-    //call_number_++;
-    // clear containers
-    reset();
-    // new containers
-    open_list_ = new Heap;
-    incons_list_ = new List;
-
-    TimingInfo timing_info;
-    // set heuristic inside clock
-
-    if (next_start_.pose.position.x == goal.pose.position.x &&
-        next_start_.pose.position.y == goal.pose.position.y) {
-        ROS_INFO("ignore");
-        return true;
-    }
-
-    goal_state_ = setGoalState(goal);
-
-    if (!env_->setPlanningParams(goal_state_->cell_i)) {
-        ROS_ERROR("heuristic calculation failed");
-        return false;
-    }
-    
-    //start_state_ = setStartState(start);
-    start_state_ = setStartState(next_start_);
-
-    if (start_state_ == NULL || goal_state_ == NULL) {
-        ROS_INFO("Bad start or goal state");
-        return false;
-    }
-
-    // Set start state cost
-    start_state_->g = 0.0;
-
-    // insert start state into open list
-    double key = start_state_->g + eps_*start_state_->h;
-    open_list_->insertElement(start_state_, key);
-
-    call_number_++;
-
-    State *current_best = NULL;
-    bool found_goal = false;
-    double cur_eps = eps_;
-
-    // main loop
-    search_iteration_ = 1;
-    int ret = improvePath(cur_eps, current_best, 
-            found_goal, (double)clock()/CLOCKS_PER_SEC+planning_timeout_);
-    expanded_paths_.poses.clear();
-
-    if (ret == -1) {
-        ROS_WARN("bad");
-        return false;
-    }
-    if (ret == 1 || !found_goal) {
-        ROS_WARN("timed out on first search");
-        return false;
-    }
-
-    double exec_time = publishPlan(goal_state_);
-    timing_info.update(exec_time);
-    double reward = 0.0;
-    double rewardSum = reward;
-    double eps_bound = getBoundedEps(cur_eps);
-    printStuff(timing_info, cur_eps, eps_bound, reward);
-
-    double new_plan_time = (double)clock()/CLOCKS_PER_SEC + FIXED;
-    while (cur_eps > 1+ROUNDED_ZERO && 
-            (double)clock()/CLOCKS_PER_SEC < new_plan_time) {
-
-        search_iteration_++;
-        cur_eps -= 0.2;
-        buildOpenList(cur_eps);
-        ret = improvePath(cur_eps, current_best, 
-                found_goal, new_plan_time);
-        double tmp;
-        retracePath(goal_state_, tmp);
-        if (tmp < exec_time) {
-            exec_time = publishPlan(goal_state_);
-        }
-
-        reward = timing_info.update(exec_time);
-        rewardSum += reward;
-        eps_bound = getBoundedEps(cur_eps);
-
-
-        printStuff(timing_info, cur_eps, eps_bound, rewardSum);
-        ROS_INFO("-------------------");
-    }
-    //QT_->updateTerminal(q, qaction, reward);
-
-    // Write the start/goal sequence plus times for posterity
-    FILE *fp;
-    fp = fopen("/home/grogan/start_goal_sequence.txt", "a");
-    fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
-            next_start_.pose.position.x, next_start_.pose.position.y, 
-            tf::getYaw(next_start_.pose.orientation),
-            goal.pose.position.x, goal.pose.position.y, 
-            tf::getYaw(goal.pose.orientation),
-            timing_info.plan_time_, timing_info.exec_time_);
-    fclose(fp);
-
-    // done with planning by here
-    
-    //if (found_goal) {
-    //    current_plan_ = retracePath(goal_state_);
-    //} else if (current_best != NULL) {
-    //    current_plan_ = retracePath(current_best);
-    //}
-
-
-    ros::Duration offset = ros::Time::now() - current_plan_[0].header.stamp;
-    for (int i=0; i<current_plan_.size(); i++) {
-        //current_plan_[i].header.frame_id = costmap_->getGlobalFrameID();
-        current_plan_[i].header.stamp += offset;
-        //ROS_INFO("t = %.4f", poses[i].header.stamp.toSec());
-    }
-
-    //path = current_plan_;
-    std::vector<geometry_msgs::PoseStamped> p;
-    path = p;
-    next_start_ = goal;
-    return false;
-
-    if (!path.empty()) {
-        return true;
-    } else {
-        return false;
-    }
-}
-*/
 
 /********************************************************************
  * Get lower bound on cost of a solution for suboptimality bound (ARA*)
@@ -1160,8 +1044,8 @@ std::vector<geometry_msgs::PoseStamped> LatticePlanner::retracePath(
     if (start_state_->parent != NULL) {
         ROS_ERROR("woah there");
     }
-    //int dx = 0;
-    //int dy = 0;
+    int dx = 0;
+    int dy = 0;
     //double cost = 0.0;
     while (state->parent != NULL) {
         //ROS_INFO("action size = %d", state->action.intmPoints.size());
@@ -1184,8 +1068,8 @@ std::vector<geometry_msgs::PoseStamped> LatticePlanner::retracePath(
             //std::string input;
             //std::getline(std::cin, input);
         }
-        //dx += state->action.dx;
-        //dy += state->action.dy;
+        dx += state->action.dx;
+        dy += state->action.dy;
         //cost += env_->getActionCost(state->action);
         /*
         if (state->parent == NULL) {
@@ -1205,14 +1089,6 @@ std::vector<geometry_msgs::PoseStamped> LatticePlanner::retracePath(
         //ROS_INFO("count = %d", count++);
     }
 
-    /*
-    int max = std::max(dx, dy);
-    int min = std::min(dx, dy);
-    double dist = ((max-min) + sqrt(2)*min);
-    ROS_INFO("path distance %f", dist);
-    ROS_INFO("path cost %f", cost);
-    */
-
     //ROS_INFO("2");
     if (poses.empty()) {
         ROS_WARN("empty path");
@@ -1230,6 +1106,12 @@ std::vector<geometry_msgs::PoseStamped> LatticePlanner::retracePath(
     }
     time = (poses[poses.size()-1].header.stamp.toSec() -
                 poses[0].header.stamp.toSec());
+
+    int max = std::max(dx, dy);
+    int min = std::min(dx, dy);
+    double dist = ((max-min) + sqrt(2)*min);
+    ROS_INFO("path distance %f", dist);
+    ROS_INFO("path time %f", time);
  
     //ROS_INFO("4");
     return poses;

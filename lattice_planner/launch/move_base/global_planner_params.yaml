@@ -26,29 +26,31 @@ LatticePlannerROS:
     # cost for possibly inscribed is 128
     lethal_cost: 128 # cost associated with forbidden areas (e.g. obstacles). default: costmap_2d::INSCRIBED_INFLATED_OBSTACLE( = 253)
     time_cost_factor: 400.0 #cost factor for path execution time. default: 200.0
-    step_cost_factor: 100.0 #cost factor for path length. default: 80.0
-    dir_cost_factor: 220.0 #cost factor for going backwards
-    rotation_cost_factor: 10.0 #cost factor for the accumulated turns along a planned path
+    step_cost_factor: 40.0 #cost factor for path length. default: 80.0
+    dir_cost_factor: 160.0 #cost factor for going backwards
+    #dir_cost_factor: 220.0 #cost factor for going backwards
+    rotation_cost_factor: 0.0 #cost factor for the accumulated turns along a planned path
     environment_cost_factor: 0.0 #cost factor for constraints defined in the dynamic environment, according to the dynamic cost map
 
-    #lethal_cost: 128 # cost associated with forbidden areas (e.g. obstacles). default: costmap_2d::INSCRIBED_INFLATED_OBSTACLE( = 253)
-    #time_cost_factor: 0.0 #cost factor for path execution time. default: 200.0
-    #step_cost_factor: 1.0 #cost factor for path length. default: 80.0
-    #dir_cost_factor: 1.0 #cost factor for going backwards
-    #rotation_cost_factor: 0.0 #cost factor for the accumulated turns along a planned path
-    #environment_cost_factor: 0.0 #cost factor for constraints defined in the dynamic environment, according to the dynamic cost map
+#    lethal_cost: 128 # cost associated with forbidden areas (e.g. obstacles). default: costmap_2d::INSCRIBED_INFLATED_OBSTACLE( = 253)
+#    time_cost_factor: 1.0 #cost factor for path execution time. default: 200.0
+#    step_cost_factor: 0.0 #cost factor for path length. default: 80.0
+#    dir_cost_factor: 1.0 #cost factor for going backwards
+#    rotation_cost_factor: 0.0 #cost factor for the accumulated turns along a planned path
+#    environment_cost_factor: 0.0 #cost factor for constraints defined in the dynamic environment, according to the dynamic cost map
 
     #planner preferences
-    planning_timeout: 10.0 #timeout for the planning after which the best solution found so far is returned, in seconds. should be a little smaller than (1/planner_frequency). default: 0.48
+    planning_timeout: 10 #timeout for the planning after which the best solution found so far is returned, in seconds. should be a little smaller than (1/planner_frequency). default: 0.48
     publish_expanded: false #flag for publishing the expanded search tree for visualization. default: false
     debug: false
 
-    #Q learning
-    discount: 0.9
-    Qlr: 0.05
-    greediness: 0
+    #TD learning
+    discount: 0.95
+    lambda: 0.8
+    lr: 0.0
+    greediness: 100
 
     #flags for simplifying the path search - violate optimality but accelerate the search procedure
     # 3.0 for cluttered, 2.0 for sparse seems good
-    heuristic_inflation: 3.0
+    heuristic_inflation: 4.0
 

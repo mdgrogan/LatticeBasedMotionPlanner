@@ -16,18 +16,25 @@ QTable::QTable(int greediness, double lr, double discount) {
     Qlr_ = lr;
     discount_ = discount;
 
-    // hardcoding this in. Everything is about halfway to having variable
-    // features, just not sure how to handle the table
+    // for env6/env7
     // planning time
-    initFeature(0, 0, std::vector<double> {0.6, 1.8, 4.0, 6.0});
+    initFeature(0, 0, std::vector<double> {0.4, 0.8, 1.8, 3.0, 4.4});
     // exec time
-    initFeature(1, 0, std::vector<double> {12.0, 20.0, 30.0, 36.0});
-    // delta open size
-    initFeature(2, 0, std::vector<double> {20000, 50000, 120000, 200000});
-    // delta inconsistent size
-    initFeature(3, 0, std::vector<double> {-5000, 0, 15000, 25000});
+    initFeature(1, 0, std::vector<double> {10.0, 17.5, 25.0, 32.5, 40.0});
+    //initFeature(1, 0, std::vector<double> {15.0, 25.0, 35.0, 45.0, 50.0});
     // delta epsilon bound
-    initFeature(4, 0, std::vector<double> {0.0, -0.05, -0.15, -0.3});
+    initFeature(2, 0, std::vector<double> {1.0, 1.1, 1.4, 1.6, 2.0});
+    // open size
+    initFeature(3, 0, std::vector<double> {20000, 40000, 60000, 100000, 150000});
+    // delta open size
+    initFeature(4, 0, std::vector<double> {-500, 0, 500, 4000, 8000});
+    // inconsistent size
+    initFeature(5, 0, std::vector<double> {0, 100, 1000, 4000, 8000});
+    // delta inconsistent size
+    initFeature(6, 0, std::vector<double> {-100, 0, 100, 800, 2200});
+    // delta epsilon bound
+    //initFeature(4, 0, std::vector<double> {1.0, 1.05, 1.2, 1.35, 1.6});
+    /**/
     /*
     //time
     features_[0].means.push_back(0.1);
@@ -88,7 +95,7 @@ double QTable::indexToAction(int i) {
 int QTable::getAction(QState q) {
     // eps greedy
     int x = rand()%100;
-    if (x>greediness_) { // 2 is exploratory val, should be variable
+    if (x>=greediness_) { // 2 is exploratory val, should be variable
         ROS_INFO("exploring");
         return 0;
         //return rand()%ACTION_SIZE;
@@ -130,15 +137,19 @@ QState QTable::discretize(std::vector<double> input) {
 // how to genericize?
 double QTable::getTableVal(QState q, int a) {
     //return table[q.eps_i][q.t_cpu_i][q.t_exec_i][q.open_size_i][a];
-    return table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a];
+    if (a == 0)
+        return table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][q.features[5]][q.features[6]];
+    else
+        return 0.0;
 }
 
 void QTable::setTableVal(QState q, int a, double val) {
     //table[q.eps_i][q.t_cpu_i][q.t_exec_i][q.open_size_i][a] = val;
-    if (table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a]==0) {
+    if (table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][q.features[5]][q.features[6]]==0) {
         ROS_INFO("\nNEW STATE ENCOUNTERED\n");
     }
-    table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a] = val;
+    if (a == 0)
+        table_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][q.features[5]][q.features[6]] = val;
     //table_update_count_[q.features[0]][q.features[1]][q.features[2]][q.features[3]][q.features[4]][a]++;
 }
 
@@ -188,7 +199,7 @@ void QTable::saveTable(std::string filename) {
         out1 << ":" << features_[i].Flr_ << std::endl;
     }
     
-    out2.open("/home/grogan/Qtable_count.txt");
+    //out2.open("/home/grogan/Qtable_count.txt");
     // how to make arbitrary?
     out1 << "table:" << std::endl;
     for (int i=0; i<F0; i++) {
@@ -196,15 +207,17 @@ void QTable::saveTable(std::string filename) {
             for (int k=0; k<F2; k++) {
                 for (int l=0; l<F3; l++) {
                     for (int m=0; m<F4; m++) {
-                        for(int n=0; n<ACTION_SIZE; n++) {
-                            out1 << i << " " << j << " " << k << " " <<
-                                l << " " << m << " " << n << " " <<
-                                table_[i][j][k][l][m][n] << std::endl;
+                        for(int n=0; n<F5; n++) {
+                            for(int h=0; h<F6; h++) {
+                                out1 << i << " " << j << " " << k << " " <<
+                                    l << " " << m << " " << n << " " << h << " " <<
+                                    table_[i][j][k][l][m][n][h] << std::endl;
                             //out2 << i << " " << j << " " << k << " " <<
                                 //l << " " << m << " " <<
                                 //table_update_count_[i][j][k][l][m][n] << std::endl;
                             //out2 << i << "," << k << "," << l << "," << m << "," 
                             //    << table_update_count[i][k][l][m] << std::endl;
+                            }
                         }
                     }
                 }
@@ -280,7 +293,7 @@ void QTable::loadTable(std::string filename) {
                 //if (fabs(vals[4]) < 1e-6)
                 //    vals[4] = 0.0;
 
-                table_[(int)vals[0]][(int)vals[1]][(int)vals[2]][(int)vals[3]][(int)vals[4]][(int)vals[5]] = vals[6];
+                table_[(int)vals[0]][(int)vals[1]][(int)vals[2]][(int)vals[3]][(int)vals[4]][(int)vals[5]][(int)vals[6]] = vals[7];
                 //if ((int)vals[4] == 5) {
                 //    table_[(int)vals[0]][(int)vals[1]][(int)vals[2]][(int)vals[3]][(int)vals[4]] = 0;
                 //}
